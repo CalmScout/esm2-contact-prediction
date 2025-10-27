@@ -1,0 +1,42 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+uv.lock
+
+# Large data files
+*.h5
+*.json.bak
+data/cnn-train-*.h5
+
+# Data directories - keep structure, ignore large files
+data/pipeline_output/
+data/.template_cache/
+data/cnn-train-*.h5
+
+# MLflow and experiment tracking
+mlruns/
+
+# Experiments - keep only quick_test_model
+experiments/full_dataset_training/
+experiments/cnn_experiment/
+experiments/esm2_contact_pipeline/
+
+# Prediction outputs and large results
+predictions/
+*.json
+best_cnn_model.pth
+
+# Documentation and task specs
+ML-candidates-task-2025.pdf
+Phylogeny-MSA-Transformer-v1.0.zip
+
+# Keep training data structure but allow selective commits
+# data/train/ (will manually manage sample files)
+# data/test/ (keep all test files)
