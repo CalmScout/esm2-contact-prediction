@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 
 def load_config():
-    """Load download links from YAML configuration file."""
+    """Load download links and paths from YAML configuration file."""
     config_path = Path(__file__).parent.parent / "config.yaml"
     if not config_path.exists():
         print(f"Error: config.yaml file not found at {config_path}")
@@ -49,7 +49,10 @@ def load_config():
         print(f"📋 Dataset: {dataset_name}")
         print(f"📝 Description: {description}")
 
-        return download_link
+        # Get the datasets path from config or use default
+        datasets_path = config.get('paths', {}).get('datasets', 'data/data')
+
+        return download_link, datasets_path
 
     except yaml.YAMLError as e:
         print(f"Error parsing YAML configuration file: {e}")
@@ -195,16 +198,16 @@ def main():
     parser = argparse.ArgumentParser(description="Download and extract dataset from Google Drive")
     parser.add_argument("--force", action="store_true", help="Force download even if files exist")
     parser.add_argument("--keep-zip", action="store_true", help="Keep zip file after extraction")
-    parser.add_argument("--data-dir", default="data", help="Data directory name (default: data)")
+    parser.add_argument("--data-dir", help="Data directory name (overrides config.yaml)")
 
     args = parser.parse_args()
 
-    # Load download link from YAML configuration
-    download_link = load_config()
+    # Load download link and datasets path from YAML configuration
+    download_link, default_data_dir = load_config()
 
-    # Set up paths
+    # Set up paths - use command line arg if provided, otherwise use config
     project_root = Path(__file__).parent.parent
-    data_dir = project_root / args.data_dir
+    data_dir = project_root / (args.data_dir if args.data_dir else default_data_dir)
     zip_path = data_dir / "dataset.zip"
 
     # Check if dataset already exists

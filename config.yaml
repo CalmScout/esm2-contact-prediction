@@ -1,6 +1,11 @@
 # Dataset download links configuration
 # This file contains download URLs and metadata for datasets used in this project
 
+# Data storage paths configuration
+paths:
+  datasets: "data/data"              # Path for datasets (download_dataset.py)
+  homology_databases: "data/homology_databases"  # Path for homology databases (download_homology_databases.py)
+
 datasets:
   esm2_contact_prediction:
     name: "ESM2 Contact Prediction Dataset"
@@ -16,15 +21,10 @@ homology_databases:
 
   pdb70:
     name: "PDB70 Structural Templates"
-    filename: "pdb70_from_mmcif_200401.tar.gz"
-    # Note: URLs may change. Check official HHblits sources for latest download links.
-    # See: https://github.com/soedinglab/hh-suite/wiki/HHblits-databases
-    url: "https://wwwuser.gwdg.de/~compbiol/data/hhsuite/databases/hhblits/pdb70_2023_02.tar.gz"
-    alternative_urls:
-      - "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/uniref/uniref90/"
-      - "https://wwwuser.gwdg.de/~compbiol/data/hhsuite/dbs/"
-    compressed_size_gb: 19.5
-    extracted_size_gb: ~56
+    filename: "pdb70_from_mmcif_220313.tar.gz"
+    url: "https://wwwuser.gwdguser.de/~compbiol/data/hhsuite/databases/hhsuite_dbs/pdb70_from_mmcif_220313.tar.gz"
+    compressed_size_gb: 27
+    extracted_size_gb: 56
     extract_to: "pdb70"
     description: "PDB70 structural templates (70% identity clustering)"
     database_files:
@@ -32,18 +32,13 @@ homology_databases:
       - "pdb70_a3m.ffindex"
       - "pdb70_hhm.ffdata"
       - "pdb70_hhm.ffindex"
-    manual_download_note: "If automated download fails, download from MPI Bioinformatics Toolkit and place in data/homology_databases/"
 
   uniref30:
     name: "UniRef30 Sequence Homologs"
     filename: "UniRef30_2023_02_hhsuite.tar.gz"
-    # Official UniRef databases: https://www.uniprot.org/help/uniref
-    url: "https://wwwuser.gwdg.de/~compbiol/data/hhsuite/databases/hhblits/uniref30_2023_02.tar.gz"
-    alternative_urls:
-      - "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/uniref/uniref30/"
-      - "https://ftp.ebi.ac.uk/pub/databases/uniprot/previous_releases/"
+    url: "https://wwwuser.gwdguser.de/~compbiol/uniclust/2023_02/UniRef30_2023_02_hhsuite.tar.gz"
     compressed_size_gb: 66
-    extracted_size_gb: ~218
+    extracted_size_gb: 218
     extract_to: "UniRef30_2023_02_hhsuite"
     description: "UniRef30 sequence homologs (30% identity clustering)"
     database_files:
@@ -51,4 +46,3 @@ homology_databases:
       - "UniRef30_2023_02_a3m.ffindex"
       - "UniRef30_2023_02_hhm.ffdata"
       - "UniRef30_2023_02_hhm.ffindex"
-    manual_download_note: "If automated download fails, download from UniProt and format with HHblits"
