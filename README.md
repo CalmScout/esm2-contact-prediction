@@ -63,26 +63,26 @@ esm2-contact-prediction/
 │   ├── dataset/               # Data processing utilities
 │   │   ├── processing.py     # Contact map generation from PDB
 │   │   └── utils.py          # Helper functions for data handling
-│   ├── embeddings/            # ESM2 embedding handling
-│   │   └── embedding_loader.py # Load and cache ESM2 embeddings
 │   ├── homology/              # Template search and alignment
 │   │   ├── search.py         # Template discovery algorithms
 │   │   ├── alignment.py      # Sequence alignment utilities
-│   │   └── template_db.py    # Template database management
+│   │   └── robust_processor.py # Robust template processing
 │   ├── analysis/              # Performance analysis tools
 │   │   ├── performance_analyzer.py # Model evaluation utilities
 │   │   └── mlflow_analyzer.py # Experiment tracking analysis
 │   ├── serving/               # Model serving utilities
 │   │   └── contact_predictor.py # Production inference wrapper
 │   └── mlflow_utils.py        # MLflow experiment tracking
-├── scripts/                   # 🚀 Executable scripts - main workflows
-│   ├── predict_from_pdb.py    # Main inference script (use this!)
-│   ├── train_cnn.py           # Standalone CNN training
-│   ├── run_complete_pipeline.py # End-to-end training pipeline
-│   ├── generate_cnn_dataset_from_pdb.py # Dataset generation
-│   ├── compute_esm2_embeddings.py # ESM2 embedding computation
-│   ├── batch_predict.py       # Batch inference for multiple proteins
-│   └── optimize_hyperparameters.py # Hyperparameter tuning
+├── scripts/                   # 🚀 Executable scripts - step-by-step workflow
+│   ├── 01_download_dataset.py # Download training data from Google Drive
+│   ├── 02_download_homology_databases.py # Download HHblits databases
+│   ├── 04_generate_cnn_dataset.py # Generate CNN training dataset (includes ESM2)
+│   ├── 05_train_cnn.py # Train CNN model
+│   ├── 06_run_complete_pipeline.py # End-to-end training pipeline
+│   ├── 07_predict_from_pdb.py # Main inference script
+│   ├── 08_batch_predict.py # Batch inference for multiple proteins
+│   ├── 09_serve_model.py # Model serving utilities
+│   └── 10_optimize_hyperparameters.py # Hyperparameter tuning
 ├── notebooks/                 # 📓 Research & analysis notebooks
 │   ├── 05_results_analysis.ipynb # 🌟 MOST IMPORTANT - Full model analysis
 │   ├── 04_cnn_training.ipynb    # Training process visualization
@@ -97,9 +97,10 @@ esm2-contact-prediction/
 
 ### 💡 Key Insights
 - **`src/esm2_contact/`** is the heart of the project - all core functionality lives here
-- **`scripts/`** contains the executable workflows you'll use daily
+- **`scripts/`** contains the step-by-step workflow (01-10) for complete reproduction
 - **`notebooks/05_results_analysis.ipynb`** is your go-to resource for understanding the full dataset model's performance
 - **`experiments/`** holds the trained models ready for immediate use
+- **Follow scripts in numerical order** for the complete workflow from data to trained model
 
 ---
 
@@ -242,7 +243,7 @@ pip install esm  # Meta AI's ESM-2 library
 **The fastest way to see results!** Use our high-quality model trained on the full dataset:
 
 ```bash
-uv run python scripts/predict_from_pdb.py \
+uv run python scripts/07_predict_from_pdb.py \
     --pdb-file data/test/1BB3.pdb \
     --model-path experiments/full_dataset_training/model.pth \
     --output predictions.json \
@@ -264,14 +265,14 @@ uv run python scripts/predict_from_pdb.py \
 
 ```bash
 # Step 1: Train a quick model (5% of data, ~30 minutes)
-uv run python scripts/run_complete_pipeline.py \
+uv run python scripts/06_run_complete_pipeline.py \
     --pdb-dir data/train \
     --process-ratio 0.05 \
     --experiment-name "quick_test_model" \
     --epochs 20
 
 # Step 2: Use your freshly trained model!
-uv run python scripts/predict_from_pdb.py \
+uv run python scripts/07_predict_from_pdb.py \
     --pdb-file data/test/1BB3.pdb \
     --model-path experiments/quick_test_model/model.pth \
     --output predictions.json \
@@ -305,6 +306,222 @@ uv run python scripts/predict_from_pdb.py \
 - **Full dataset model**: Use `--threshold 0.15` for realistic 5-10% contact density
 - **Quick test model**: Use `--threshold 0.40` for realistic 3-5% contact density
 - **Auto-thresholding**: Omit `--threshold` parameter for system optimization
+
+---
+
+## 🚀 Complete Reproduction Workflow
+
+**🎯 Goal: Reproduce our 92.4% AUC results from scratch!** This step-by-step guide takes you from a fresh git clone to a fully trained model with identical performance.
+
+### 📋 Prerequisites
+
+**System Requirements:**
+- **Python**: 3.13+ (required)
+- **OS**: Linux/macOS (Ubuntu 20.04+ recommended)
+- **GPU**: CUDA-compatible GPU with 8GB+ VRAM (RTX 3080/4080 or better)
+- **RAM**: 16GB+ minimum, 32GB+ recommended
+- **Storage**: 400GB+ free disk space (for databases + datasets)
+- **Internet**: Required for initial downloads (ESM2 model + databases)
+
+### 🔄 Complete Step-by-Step Workflow
+
+Follow these steps in order for complete reproduction:
+
+#### **Step 0: Environment Setup**
+```bash
+# Clone the repository
+git clone <repository-url>
+cd esm2-contact-prediction
+
+# Install all dependencies (uses uv for fast, reliable installs)
+uv sync
+
+# Verify installation
+uv run python --version  # Should show Python 3.13+
+```
+
+#### **Step 1: Download Training Dataset**
+```bash
+# Download the complete training/test dataset (~2GB download)
+uv run python scripts/01_download_dataset.py
+
+# ✅ Delivers: Complete PDB dataset in data/data/
+# - Training structures: ~15,000 proteins
+# - Test structures: ~1,000 proteins
+# - Expected time: 5-15 minutes depending on internet speed
+```
+
+#### **Step 2: Download Homology Databases**
+```bash
+# Download both PDB70 and UniRef30 databases (367GB total)
+uv run python scripts/02_download_homology_databases.py --db all
+
+# ✅ Delivers: HHblits databases in data/homology_databases/
+# - PDB70: 56GB extracted (structural templates)
+# - UniRef30: 218GB extracted (sequence homologs)
+# - Expected time: 1-3 hours depending on internet speed
+# - Disk space: ~367GB total required
+```
+
+**⚡ Quick Alternative (Skip for initial testing):**
+You can start with Step 3 and come back to this later. The system will use pattern-based templates if databases aren't available.
+
+#### **Step 3: Generate CNN Training Dataset**
+```bash
+# Generate complete CNN dataset with ESM2 embeddings (self-contained)
+uv run python scripts/04_generate_cnn_dataset.py \
+    --pdb-dir data/data/train \
+    --output-path experiments/full_dataset_training/cnn-train-full-dataset.h5 \
+    --process-ratio 1.0 \
+    --random-seed 42
+
+# ✅ Delivers: Complete training dataset (68-channel tensors + targets)
+# - Features: 68 channels (4 template + 64 ESM2 embeddings)
+# - ESM2 embeddings: Generated automatically (no separate step needed)
+# - Targets: Binary contact maps (8Å Cα-Cα distance threshold)
+# - Expected time: 2-4 hours for full dataset
+# - File size: ~12GB
+
+# For rapid testing (5% of data, ~30 minutes):
+# --process-ratio 0.05
+```
+
+#### **Step 4: Train the CNN Model**
+```bash
+# Train the model on the complete dataset
+uv run python scripts/05_train_cnn.py \
+    --dataset-path experiments/full_dataset_training/cnn-train-full-dataset.h5 \
+    --experiment-name "full_dataset_reproduction" \
+    --epochs 5 \
+    --batch-size 4
+
+# ✅ Delivers: Trained model achieving ~92.4% AUC
+# - Model: BinaryContactCNN (380K parameters, 1.45MB)
+# - Training time: ~90-120 minutes
+# - Expected AUC: 92.0-92.5%
+# - Model saved to: experiments/full_dataset_reproduction/
+```
+
+#### **Step 5: Verify Model Performance**
+```bash
+# Test the trained model on sample proteins
+uv run python scripts/07_predict_from_pdb.py \
+    --pdb-file data/data/test/1BB3.pdb \
+    --model-path experiments/full_dataset_reproduction/model.pth \
+    --output verification_predictions.json \
+    --threshold 0.15
+
+# ✅ Expected results:
+# - Contact density: 5-10% (realistic)
+# - Processing time: 11-13 seconds per protein
+# - Output: JSON file with contact predictions
+```
+
+### 📊 Expected Outputs & Verification
+
+**At each step, you should see:**
+
+| Step | Expected Output | Verification |
+|------|----------------|--------------|
+| 1 | `data/data/` with PDB files | `ls data/data/train/*.pdb \| head -5` |
+| 2 | `data/homology_databases/` with db files | `ls data/homology_databases/pdb70/` |
+| 3 | `experiments/*/cnn-train-*.h5` file | `h5py experiments/*/cnn-train-*.h5` |
+| 4 | `experiments/*/model.pth` (1.45MB) | `ls -lh experiments/*/model.pth` |
+| 5 | Predictions JSON file | `cat verification_predictions.json` |
+
+**Performance Benchmarks:**
+- **Total pipeline time**: 4-7 hours (excluding Step 2 databases)
+- **Peak GPU memory**: 4-6GB during training
+- **Peak RAM usage**: 8-12GB during dataset generation
+- **Final AUC**: 92.0-92.5% (within ±0.5% of published results)
+
+### ⚡ Quick Start Options
+
+**Option A: 5-Minute Test (Pretrained Model)**
+```bash
+# Skip all training, use our production model
+uv run python scripts/07_predict_from_pdb.py \
+    --pdb-file data/data/test/1BB3.pdb \
+    --model-path experiments/full_dataset_training/model.pth \
+    --output quick_test.json
+```
+
+**Option B: 30-Minute Training (Small Dataset)**
+```bash
+# Skip Step 2 (homology databases) and use small dataset
+uv run python scripts/04_generate_cnn_dataset.py \
+    --pdb-dir data/data/train --process-ratio 0.05
+
+uv run python scripts/05_train_cnn.py \
+    --dataset-path experiments/cnn-train-test.h5 \
+    --epochs 20
+```
+
+**Option C: Full Production Pipeline**
+```bash
+# Use the end-to-end pipeline script
+uv run python scripts/06_run_complete_pipeline.py \
+    --pdb-dir data/data/train \
+    --process-ratio 1.0 \
+    --experiment-name "production_run" \
+    --epochs 5
+```
+
+### 🔧 Troubleshooting Guide
+
+**Common Issues and Solutions:**
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| **CUDA out of memory** | Training fails with GPU memory error | Reduce `--batch-size` to 2 or 1 |
+| **ESM2 model download fails** | "Cannot download ESM2 model" | Check internet connection, try again |
+| **Homology database download fails** | Step 2 download interruption | Use `--base-path` to specify alternative location |
+| **Dataset generation too slow** | Step 3 taking >6 hours | Use `--process-ratio 0.1` for faster testing |
+| **Final AUC below 90%** | Model underperforming | Check for data corruption, verify random seed |
+
+**Recovery Commands:**
+```bash
+# Check available GPU memory
+nvidia-smi
+
+# Verify ESM2 model installation
+uv run python -c "import esm; print('ESM2 installed successfully')"
+
+# Test homology database configuration
+uv run python -c "from esm2_contact.homology.search import DatabaseConfig; print(DatabaseConfig().databases)"
+
+# Verify dataset integrity
+uv run python -c "from esm2_contact.dataset.utils import ContactDataset; print('Dataset OK')"
+```
+
+### 📈 Advanced Usage Options
+
+**After successful reproduction, explore these options:**
+
+1. **Batch Processing**: Process multiple proteins
+   ```bash
+   uv run python scripts/08_batch_predict.py --input-dir data/data/test/
+   ```
+
+2. **Hyperparameter Optimization**: Find better model configurations
+   ```bash
+   uv run python scripts/10_optimize_hyperparameters.py --dataset-path experiments/cnn-train-full-dataset.h5
+   ```
+
+3. **Model Serving**: Deploy model as REST API
+   ```bash
+   uv run python scripts/09_serve_model.py --model-path experiments/full_dataset_reproduction/model.pth
+   ```
+
+4. **Performance Analysis**: Deep dive into model behavior
+   ```bash
+   jupyter notebook notebooks/05_results_analysis.ipynb
+   ```
+
+### 📌 Important Note
+- **ESM2 embeddings are generated automatically** by `04_generate_cnn_dataset.py` (Step 3)
+- **No separate embedding step is needed** - the deprecated `03_compute_esm2_embeddings.py` has been removed
+- **Use `06_run_complete_pipeline.py`** for the simplest all-in-one approach (combines Steps 3-4)
 
 ---
 

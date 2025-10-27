@@ -23,10 +23,10 @@ Pipeline Steps:
 
 Usage:
     # Process 5% of PDB files:
-    uv run python scripts/generate_cnn_dataset_from_pdb.py --pdb-dir ./my_pdbs --process-ratio 0.05
+    uv run python scripts/04_generate_cnn_dataset.py --pdb-dir ./my_pdbs --process-ratio 0.05
 
     # Process all files with fixed seed:
-    uv run python scripts/generate_cnn_dataset_from_pdb.py --pdb-dir ./my_pdbs --process-ratio 1.0 --random-seed 42
+    uv run python scripts/04_generate_cnn_dataset.py --pdb-dir ./my_pdbs --process-ratio 1.0 --random-seed 42
 """
 
 import os

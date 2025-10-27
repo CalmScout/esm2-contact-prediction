@@ -408,8 +408,8 @@ def setup_mlflow(tracking_uri: Optional[str] = None,
         if tracking_uri:
             mlflow.set_tracking_uri(tracking_uri)
         else:
-            # Default to local file-based tracking
-            default_uri = "file:./mlruns"
+            # Default to local file-based tracking in experiments directory
+            default_uri = "file:./experiments/mlruns"
             mlflow.set_tracking_uri(default_uri)
             tracking_uri = default_uri
 

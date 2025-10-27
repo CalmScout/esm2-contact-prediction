@@ -15,13 +15,17 @@ uv.lock
 *.json.bak
 data/cnn-train-*.h5
 
+# Configuration files
+# config.yaml - intentionally NOT ignored (contains public dataset links and configuration)
+# If you add sensitive links to this file, uncomment the line below:
+# config.yaml
+
 # Data directories - keep structure, ignore large files
 data/pipeline_output/
 data/.template_cache/
 data/cnn-train-*.h5
 
-# MLflow and experiment tracking
-mlruns/
+# MLflow and experiment tracking - unified in experiments/ directory
 
 # Experiments - keep only quick_test_model
 experiments/full_dataset_training/
@@ -37,6 +41,4 @@ best_cnn_model.pth
 ML-candidates-task-2025.pdf
 Phylogeny-MSA-Transformer-v1.0.zip
 
-# Keep training data structure but allow selective commits
-# data/train/ (will manually manage sample files)
-# data/test/ (keep all test files)
+data/

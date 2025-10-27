@@ -11,6 +11,7 @@ import os
 import json
 import numpy as np
 import re
+import yaml
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from Bio import SeqIO
@@ -25,12 +26,72 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def load_config(config_path: str = "config.yaml") -> Dict:
+    """
+    Load configuration from YAML file.
+
+    Args:
+        config_path: Path to the config.yaml file
+
+    Returns:
+        Configuration dictionary
+    """
+    try:
+        config_file = Path(config_path)
+        if not config_file.exists():
+            logger.warning(f"Config file not found: {config_path}, using defaults")
+            return {}
+
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Loaded configuration from {config_path}")
+        return config
+
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing config file: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        return {}
+
+
+def get_database_base_dir() -> str:
+    """
+    Get the database base directory from config.yaml ONLY.
+
+    This function ensures the project is self-contained and reproducible
+    by only using the configured database path.
+
+    Returns:
+        Base directory path for homology databases
+    """
+    config = load_config()
+    db_config = config.get('homology_databases', {})
+    base_path = db_config.get('base_path', 'data/homology_databases')
+
+    # Make relative paths absolute from project root
+    if not Path(base_path).is_absolute():
+        project_root = Path(__file__).parent.parent.parent.parent
+        base_path = project_root / base_path
+
+    logger.info(f"Using database path: {base_path}")
+    return str(base_path)
+
+
 class DatabaseConfig:
     """Configuration and management for HHblits databases."""
 
-    def __init__(self, base_dir: str = "/home/calmscout/hhdbs"):
+    def __init__(self, base_dir: Optional[str] = None):
+        if base_dir is None:
+            base_dir = get_database_base_dir()
         self.base_dir = Path(base_dir)
         self.databases = self._detect_databases()
+
+        if not self.databases:
+            logger.warning(f"No databases found in {self.base_dir}")
+            logger.info("Run: uv run python scripts/02_download_homology_databases.py --db all")
+        else:
+            logger.info(f"DatabaseConfig initialized with {len(self.databases)} databases")
 
     def _detect_databases(self) -> Dict[str, Dict]:
         """Auto-detect available HHblits databases."""
@@ -91,12 +152,22 @@ class DatabaseConfig:
         if not db_path.exists():
             return False
 
-        # Check for required HHblits database files
+        # Check for required HHblits database files in both direct and nested structures
         required_extensions = ['_a3m.ffdata', '_a3m.ffindex']
 
         for ext in required_extensions:
-            if not (db_path / f"{db_name}{ext}").exists():
-                return False
+            # Try direct structure: db_path/db_name.ext
+            direct_file = db_path / f"{db_name}{ext}"
+            if direct_file.exists():
+                continue
+
+            # Try nested structure: db_path/db_name/db_name.ext
+            nested_file = db_path / db_name / f"{db_name}{ext}"
+            if nested_file.exists():
+                continue
+
+            # If neither structure found, invalid database
+            return False
 
         return True
 
@@ -107,11 +178,21 @@ class DatabaseConfig:
             if db_info['status'] == 'ready':
                 # Return path with database prefix for HHblits
                 base_path = Path(db_info['path'])
+
+                # Determine the actual database name used in files
                 if database_type == 'pdb70':
-                    return str(base_path / 'pdb70')
+                    db_name = 'pdb70'
                 elif database_type == 'uniref30':
-                    return str(base_path / 'UniRef30_2023_02')
+                    db_name = 'UniRef30_2023_02'
                 else:
+                    return str(base_path)
+
+                # Check if nested structure exists
+                nested_path = base_path / db_name
+                if nested_path.exists() and (nested_path / f"{db_name}_a3m.ffdata").exists():
+                    return str(nested_path)
+                else:
+                    # Use direct structure
                     return str(base_path)
         return None
 
@@ -271,7 +352,7 @@ class TemplateSearcher:
                  min_coverage: float = 0.5,
                  max_templates: int = 10,
                  cache_dir: Optional[Path] = None,
-                 database_dir: str = "/home/calmscout/hhdbs"):
+                 database_dir: Optional[str] = None):
         """
         Initialize template searcher.
 
@@ -281,7 +362,7 @@ class TemplateSearcher:
             min_coverage: Minimum sequence coverage threshold
             max_templates: Maximum number of templates to return
             cache_dir: Directory to cache downloaded templates
-            database_dir: Directory containing HHblits databases
+            database_dir: Directory containing HHblits databases (auto-detected if None)
         """
         self.method = method
         self.min_identity = min_identity
@@ -527,7 +608,7 @@ class TemplateSearcher:
 
     def _get_default_database_path(self, database_type: str) -> Optional[str]:
         """Get default database path for a given database type."""
-        base_dir = Path("/home/calmscout/hhdbs")
+        base_dir = Path(get_database_base_dir())
 
         # Try different possible database directory names
         possible_names = {

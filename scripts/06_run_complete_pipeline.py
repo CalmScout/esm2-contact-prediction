@@ -262,7 +262,7 @@ def run_dataset_generation(args: argparse.Namespace) -> str:
 
     # Build command for dataset generation
     cmd = [
-        sys.executable, str(project_root / "scripts" / "generate_cnn_dataset_from_pdb.py"),
+        sys.executable, str(project_root / "scripts" / "04_generate_cnn_dataset.py"),
         "--pdb-dir", str(args.pdb_dir),
         "--output-path", str(Path(args.output_dir) / "cnn_dataset.h5"),
         "--process-ratio", str(args.process_ratio),
@@ -339,7 +339,7 @@ def run_training(args: argparse.Namespace, dataset_path: str, mlflow_enabled: bo
 
     # Build training command
     cmd = [
-        sys.executable, str(project_root / "scripts" / "train_cnn.py"),
+        sys.executable, str(project_root / "scripts" / "05_train_cnn.py"),
         "--dataset-path", dataset_path,
         "--experiment-name", args.experiment_name,
         "--epochs", str(args.epochs),

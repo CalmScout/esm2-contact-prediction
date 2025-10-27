@@ -7,7 +7,7 @@ It reads configuration from config.yaml and handles downloading, extracting,
 and validation of the databases.
 
 Usage:
-    python scripts/download_homology_databases.py [--db pdb70|uniref30|all] [--base-path PATH]
+    python scripts/02_download_homology_databases.py [--db pdb70|uniref30|all] [--base-path PATH]
 """
 
 import os
@@ -30,15 +30,17 @@ logger = logging.getLogger(__name__)
 class DatabaseDownloader:
     """Download and manage HHblits homology databases."""
 
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "config.yaml", keep_archives: bool = False):
         """
         Initialize the downloader with configuration.
 
         Args:
             config_path: Path to the config.yaml file
+            keep_archives: Whether to keep archive files after extraction
         """
         self.config_path = Path(config_path)
         self.config = self._load_config()
+        self.keep_archives = keep_archives
         # Get homology_databases path from new paths config, fallback to old homology_databases.base_path, then default
         self.base_path = Path(
             self.config.get('paths', {}).get('homology_databases',
@@ -331,6 +333,15 @@ class DatabaseDownloader:
             logger.error(f"Validation failed for '{db_name}'")
             return False
 
+        # Clean up archive file unless requested to keep it
+        if not self.keep_archives and archive_path.exists():
+            try:
+                archive_size_gb = archive_path.stat().st_size / (1024**3)
+                archive_path.unlink()
+                logger.info(f"✓ Deleted archive file: {archive_path.name} ({archive_size_gb:.1f} GB) - freed up disk space")
+            except Exception as e:
+                logger.warning(f"Failed to delete archive file {archive_path}: {e}")
+
         logger.info(f"Successfully processed database '{db_name}'")
         return True
 
@@ -348,6 +359,11 @@ class DatabaseDownloader:
                 success = False
                 logger.error(f"Failed to download database: {db_name}")
 
+        # Report overall archive cleanup status
+        if not self.keep_archives and success:
+            logger.info("All archives have been deleted after successful extraction to save disk space")
+            logger.info("Use --keep-archives flag if you want to preserve the archive files")
+
         return success
 
 
@@ -358,11 +374,13 @@ def main():
                        help='Database to download (default: all)')
     parser.add_argument('--base-path', type=str, help='Override base path from config')
     parser.add_argument('--config', type=str, default='config.yaml', help='Configuration file path')
+    parser.add_argument('--keep-archives', action='store_true',
+                       help='Keep archive files after extraction (default: delete to save space)')
 
     args = parser.parse_args()
 
     # Initialize downloader
-    downloader = DatabaseDownloader(args.config)
+    downloader = DatabaseDownloader(args.config, args.keep_archives)
 
     # Override base path if provided
     base_path_override = None
