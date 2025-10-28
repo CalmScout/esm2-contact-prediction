@@ -59,21 +59,21 @@ homology_databases:
 template_search:
   # Quality thresholds for TemplateSearcher (single filtering point)
   quality_thresholds:
-    min_sequence_identity: 0.1    # 10% minimum sequence identity (very relaxed)
-    min_coverage: 0.2            # 20% minimum coverage (very relaxed)
-    max_e_value: 1e-2           # Maximum E-value (more permissive)
+    min_sequence_identity: 0.18    # 18% minimum sequence identity (literature-optimal)
+    min_coverage: 0.6            # 60% minimum coverage (good structural coverage)
+    max_e_value: 1e-3           # Standard E-value threshold
 
   # HHblits parameters for different database types
   hhblits_parameters:
     pdb70:
-      e_value: "1e-2"           # Much more permissive E-value for structural templates
-      coverage: "0.2"           # Very low coverage requirement
-      max_sequences: "5000"     # Larger search space
+      e_value: "1e-3"           # Standard E-value for structural templates
+      coverage: "0.6"           # Good coverage requirement for structural templates
+      max_sequences: "3000"     # Balanced diversity and quality
       iterations: "3"
     uniref30:
-      e_value: "1e-2"           # More permissive E-value for sequence homologs
-      coverage: "0.2"           # Very low coverage for homologs
-      max_sequences: "10000"    # Much larger search space
+      e_value: "1e-3"           # Standard E-value for sequence homologs
+      coverage: "0.5"           # Good coverage for sequence homologs
+      max_sequences: "5000"     # More sequence diversity for homologs
       iterations: "3"
 
   # General search settings
