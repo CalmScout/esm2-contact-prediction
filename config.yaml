@@ -57,11 +57,17 @@ homology_databases:
 
 # Template search configuration
 template_search:
-  # Quality thresholds for TemplateSearcher (single filtering point)
+  # Quality thresholds for TemplateSearcher (strict parameters)
   quality_thresholds:
     min_sequence_identity: 0.18    # 18% minimum sequence identity (literature-optimal)
     min_coverage: 0.6            # 60% minimum coverage (good structural coverage)
     max_e_value: 1e-3           # Standard E-value threshold
+
+  # Fallback quality thresholds (relaxed parameters)
+  fallback_quality_thresholds:
+    min_sequence_identity: 0.10    # 10% minimum sequence identity (relaxed)
+    min_coverage: 0.4            # 40% minimum coverage (relaxed)
+    max_e_value: 1e-2           # Less strict E-value threshold
 
   # HHblits parameters for different database types
   hhblits_parameters:

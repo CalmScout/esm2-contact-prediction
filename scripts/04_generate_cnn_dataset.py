@@ -549,13 +549,13 @@ def validate_homology_databases() -> None:
 
     print(f"   📊 Ready databases: {ready_dbs}")
 
-def search_homology_templates(sequence: str, cache_dir: Path, cpu_limit: int) -> Tuple[List[Dict[str, Any]], np.ndarray]:
-    """Search for homology templates using real databases."""
+def search_homology_templates(sequence: str, cache_dir: Path, cpu_limit: int) -> Tuple[List[Dict[str, Any]], np.ndarray, bool]:
+    """Search for homology templates using real databases with two-tier fallback system."""
     try:
         # Initialize template channels
         template_channels = np.zeros((4, len(sequence), len(sequence)), dtype=np.float32)
 
-        print(f"   🔍 Searching for homology templates...")
+        print(f"   🔍 Searching for homology templates (two-tier search)...")
 
         # Validate databases first
         validate_homology_databases()
@@ -570,23 +570,54 @@ def search_homology_templates(sequence: str, cache_dir: Path, cpu_limit: int) ->
             config = yaml.safe_load(f)
 
         template_config = config.get('template_search', {})
-        quality_config = template_config.get('quality_thresholds', {})
+        strict_quality_config = template_config.get('quality_thresholds', {})
+        fallback_quality_config = template_config.get('fallback_quality_thresholds', {})
         general_config = template_config  # Use template_config directly for general settings
 
         db_config = DatabaseConfig()
+
+        # Track which parameter set succeeded
+        used_fallback = False
+        results = None
+
+        # First attempt: Strict parameters
+        print(f"   🎯 Attempting search with strict parameters...")
         searcher = TemplateSearcher(
             method="dual",  # Use both BLAST and HHblits
-            min_identity=quality_config.get('min_sequence_identity', 0.2),
-            min_coverage=quality_config.get('min_coverage', 0.3),
+            min_identity=strict_quality_config.get('min_sequence_identity', 0.18),
+            min_coverage=strict_quality_config.get('min_coverage', 0.6),
             max_templates=general_config.get('max_templates', 20),
             cache_dir=cache_dir
         )
 
-        # Search for templates
         results = searcher.search_templates(sequence, "query")
 
+        if results:
+            print(f"   ✅ Found {len(results)} templates with strict parameters")
+        else:
+            # Second attempt: Relaxed parameters
+            print(f"   ⚠️  No templates found with strict parameters, trying relaxed parameters...")
+            used_fallback = True
+            searcher = TemplateSearcher(
+                method="dual",  # Use both BLAST and HHblits
+                min_identity=fallback_quality_config.get('min_sequence_identity', 0.10),
+                min_coverage=fallback_quality_config.get('min_coverage', 0.4),
+                max_templates=general_config.get('max_templates', 20),
+                cache_dir=cache_dir
+            )
+
+            results = searcher.search_templates(sequence, "query")
+
+            if results:
+                print(f"   ✅ Found {len(results)} templates with relaxed parameters (fallback)")
+            else:
+                print(f"   ❌ No homology templates found for sequence length {len(sequence)} with either parameter set")
+                raise RuntimeError(
+                    f"No homology templates found for protein sequence (length {len(sequence)}) "
+                    f"even with relaxed parameters. Discarding this protein."
+                )
+
         if not results:
-            print(f"   ❌ No homology templates found for sequence length {len(sequence)}")
             raise RuntimeError(
                 f"No homology templates found for protein sequence (length {len(sequence)}). "
                 f"This is required for CNN dataset generation. "
@@ -704,7 +735,8 @@ def search_homology_templates(sequence: str, cache_dir: Path, cpu_limit: int) ->
             'e_value': r.e_value
         } for r in all_results[:10]]
 
-        return template_list, template_channels
+        # Return templates list, channels, and fallback flag
+        return template_list, template_channels, used_fallback
 
     except Exception as e:
         print(f"❌ Error searching homology templates: {e}")
@@ -960,6 +992,8 @@ def main():
 
     processed_count = 0
     memory_issues = 0
+    high_quality_count = 0
+    low_quality_count = 0
 
     with tqdm(selected_files, desc="Processing PDB files") as pbar:
         for i, pdb_file in enumerate(pbar):
@@ -1032,8 +1066,9 @@ def main():
 
                 # Search for homology templates
                 print(f"   🔍 Creating template channels...")
-                templates, template_channels = search_homology_templates(sequence, cache_dir, args.cpu_limit)
-                print(f"   ✅ Template channels created")
+                templates, template_channels, used_fallback = search_homology_templates(sequence, cache_dir, args.cpu_limit)
+                quality_label = "low-quality" if used_fallback else "high-quality"
+                print(f"   ✅ Template channels created ({quality_label})")
 
                 # Assemble 68-channel tensor
                 print(f"   🏗️ Assembling 68-channel tensor...")
@@ -1045,12 +1080,22 @@ def main():
                 if tensor.shape != expected_shape:
                     print(f"   ⚠️  Tensor shape mismatch: {tensor.shape} != {expected_shape}")
 
+                # Determine output file based on quality
+                output_file = args.output_path
+                if used_fallback:
+                    # Use low-quality dataset file for fallback results
+                    output_file = str(Path(args.output_path).parent / "cnn_dataset_low_quality.h5")
+
                 # Save to HDF5
-                save_protein_to_hdf5(args.output_path, protein_id, tensor,
+                save_protein_to_hdf5(output_file, protein_id, tensor,
                                    contact_map, sequence, chain_id)
-                print(f"   ✅ Saved to {args.output_path}")
+                print(f"   ✅ Saved to {output_file} ({quality_label})")
 
                 processed_count += 1
+                if used_fallback:
+                    low_quality_count += 1
+                else:
+                    high_quality_count += 1
 
             except Exception as e:
                 print(f"   ❌ Error processing {pdb_file.name}: {e}")
@@ -1068,7 +1113,18 @@ def main():
     print(f"📁 Proteins successfully processed: {processed_count}/{len(selected_files)}")
     if memory_issues > 0:
         print(f"⚠️  Memory issues encountered: {memory_issues}")
-    print(f"💾 Output file: {args.output_path}")
+
+    # Quality statistics
+    print(f"🎯 High-quality proteins (strict parameters): {high_quality_count}")
+    print(f"🔄 Low-quality proteins (relaxed parameters): {low_quality_count}")
+    if processed_count > 0:
+        high_quality_pct = (high_quality_count / processed_count) * 100
+        print(f"📊 High-quality ratio: {high_quality_pct:.1f}%")
+
+    print(f"💾 Primary output file: {args.output_path}")
+    if low_quality_count > 0:
+        low_quality_path = str(Path(args.output_path).parent / "cnn_dataset_low_quality.h5")
+        print(f"💾 Low-quality output file: {low_quality_path}")
 
     if output_path.exists():
         file_size_mb = output_path.stat().st_size / (1024*1024)
