@@ -371,7 +371,7 @@ You can start with Step 3 and come back to this later. The system will use patte
 # Generate complete CNN dataset with ESM2 embeddings (self-contained)
 uv run python scripts/04_generate_cnn_dataset.py \
     --pdb-dir data/data/train \
-    --output-path experiments/full_dataset_training/cnn-train-full-dataset.h5 \
+    --output-path data/cnn-train-full-dataset.h5 \
     --process-ratio 1.0 \
     --random-seed 42
 

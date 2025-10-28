@@ -94,56 +94,70 @@ class DatabaseConfig:
             logger.info(f"DatabaseConfig initialized with {len(self.databases)} databases")
 
     def _detect_databases(self) -> Dict[str, Dict]:
-        """Auto-detect available HHblits databases."""
+        """Auto-detect available HHblits databases using config."""
         databases = {}
+        config = load_config()
+        db_config = config.get('homology_databases', {})
 
-        # Check for PDB70
-        pdb70_variants = ["pdb70", "pdb70_from_mmcif"]
-        for variant in pdb70_variants:
-            pdb70_path = self.base_dir / variant
-            if self._is_valid_hhblits_db(pdb70_path, variant):
+        # Check for PDB70 using explicit config
+        pdb70_config = db_config.get('pdb70', {})
+        if 'path' in pdb70_config:
+            pdb70_path = Path(pdb70_config['path'])
+            db_name = pdb70_config.get('database_name', 'pdb70')
+            if self._is_valid_hhblits_db(pdb70_path, db_name):
                 databases['pdb70'] = {
                     'path': str(pdb70_path),
+                    'database_name': db_name,
                     'type': 'templates',
                     'status': 'ready',
-                    'description': 'PDB70 structural templates (70% identity clustering)'
+                    'description': pdb70_config.get('description', 'PDB70 structural templates')
                 }
-                break
+            else:
+                logger.warning(f"PDB70 database found at {pdb70_path} but files are not valid")
         else:
-            # Check if tar.gz exists but not extracted
-            tar_file = self.base_dir / "pdb70_from_mmcif_200401.tar.gz"
-            if tar_file.exists():
-                databases['pdb70'] = {
-                    'path': str(self.base_dir / "pdb70"),
-                    'type': 'templates',
-                    'status': 'downloaded',
-                    'description': 'PDB70 templates (downloaded, needs extraction)',
-                    'tar_file': str(tar_file)
-                }
+            # Fallback: Check for PDB70 in standard locations
+            pdb70_variants = ["pdb70", "pdb70_from_mmcif"]
+            for variant in pdb70_variants:
+                pdb70_path = self.base_dir / variant
+                if self._is_valid_hhblits_db(pdb70_path, variant):
+                    databases['pdb70'] = {
+                        'path': str(pdb70_path),
+                        'database_name': variant,
+                        'type': 'templates',
+                        'status': 'ready',
+                        'description': 'PDB70 structural templates (70% identity clustering)'
+                    }
+                    break
 
-        # Check for UniRef30
-        uniref30_variants = ["uniref30", "UniRef30_2023_02", "UniRef30_2023_02_hhsuite"]
-        for variant in uniref30_variants:
-            uniref30_path = self.base_dir / variant
-            if self._is_valid_hhblits_db(uniref30_path, "UniRef30_2023_02"):
+        # Check for UniRef30 using explicit config
+        uniref30_config = db_config.get('uniref30', {})
+        if 'path' in uniref30_config:
+            uniref30_path = Path(uniref30_config['path'])
+            db_name = uniref30_config.get('database_name', 'UniRef30_2023_02_hhsuite')
+            if self._is_valid_hhblits_db(uniref30_path, db_name):
                 databases['uniref30'] = {
                     'path': str(uniref30_path),
+                    'database_name': db_name,
                     'type': 'homologs',
                     'status': 'ready',
-                    'description': 'UniRef30 sequence homologs (30% identity clustering)'
+                    'description': uniref30_config.get('description', 'UniRef30 sequence homologs')
                 }
-                break
+            else:
+                logger.warning(f"UniRef30 database found at {uniref30_path} but files are not valid")
         else:
-            # Check if tar.gz exists but not extracted
-            tar_file = self.base_dir / "UniRef30_2023_02_hhsuite.tar.gz"
-            if tar_file.exists():
-                databases['uniref30'] = {
-                    'path': str(self.base_dir / "uniref30"),
-                    'type': 'homologs',
-                    'status': 'downloaded',
-                    'description': 'UniRef30 homologs (downloaded, needs extraction)',
-                    'tar_file': str(tar_file)
-                }
+            # Fallback: Check for UniRef30 in standard locations
+            uniref30_variants = ["uniref30", "UniRef30_2023_02", "UniRef30_2023_02_hhsuite"]
+            for variant in uniref30_variants:
+                uniref30_path = self.base_dir / variant
+                if self._is_valid_hhblits_db(uniref30_path, variant):
+                    databases['uniref30'] = {
+                        'path': str(uniref30_path),
+                        'database_name': variant,
+                        'type': 'homologs',
+                        'status': 'ready',
+                        'description': 'UniRef30 sequence homologs (30% identity clustering)'
+                    }
+                    break
 
         return databases
 
@@ -173,27 +187,42 @@ class DatabaseConfig:
 
     def get_database_path(self, database_type: str) -> Optional[str]:
         """Get path for a specific database type."""
+        logger.info(f"Getting database path for type: {database_type}")
+
         if database_type in self.databases:
             db_info = self.databases[database_type]
+            logger.info(f"Database info for {database_type}: {db_info}")
+
             if db_info['status'] == 'ready':
-                # Return path with database prefix for HHblits
+                # Use the path and database name from database detection
                 base_path = Path(db_info['path'])
+                db_name = db_info.get('database_name', database_type)
 
-                # Determine the actual database name used in files
-                if database_type == 'pdb70':
-                    db_name = 'pdb70'
-                elif database_type == 'uniref30':
-                    db_name = 'UniRef30_2023_02'
-                else:
-                    return str(base_path)
+                logger.info(f"Base path for {database_type}: {base_path}")
+                logger.info(f"Using database name: {db_name}")
 
-                # Check if nested structure exists
-                nested_path = base_path / db_name
-                if nested_path.exists() and (nested_path / f"{db_name}_a3m.ffdata").exists():
-                    return str(nested_path)
+                # For HHblits, we need to pass the database prefix (directory + base name)
+                # HHblits will append _cs219.ffdata, _a3m.ffdata, etc. to this prefix
+                if base_path.exists():
+                    # Check if the required database files exist
+                    a3m_file = base_path / f"{db_name}_a3m.ffdata"
+                    cs219_file = base_path / f"{db_name}_cs219.ffdata"
+
+                    logger.info(f"Checking for database files: {a3m_file}, {cs219_file}")
+                    logger.info(f"A3M file exists: {a3m_file.exists()}")
+                    logger.info(f"CS219 file exists: {cs219_file.exists()}")
+
+                    if a3m_file.exists():
+                        # Return the full database prefix (directory + base name)
+                        db_prefix = base_path / db_name
+                        logger.info(f"Returning database prefix: {db_prefix}")
+                        return str(db_prefix)
+                    else:
+                        logger.warning(f"Database files not found in {base_path}")
                 else:
-                    # Use direct structure
-                    return str(base_path)
+                    logger.warning(f"Database directory does not exist: {base_path}")
+
+        logger.warning(f"Database {database_type} not found or not ready")
         return None
 
     def is_ready(self, database_type: str) -> bool:
@@ -446,16 +475,20 @@ class TemplateSearcher:
         Returns:
             DualSearchResult containing both structural templates and sequence homologs
         """
-        logger.info(f"Performing dual database search for {query_id}")
+        logger.info(f"=== Dual Database Search Started for {query_id} ===")
+        logger.info(f"Query sequence length: {len(query_sequence)}")
         results = DualSearchResult()
         results.query_sequence = query_sequence
 
         # Search PDB70 for structural templates
         if self.db_config.is_ready('pdb70'):
-            logger.info("Searching PDB70 database for structural templates...")
+            logger.info("PDB70 database is ready, searching for structural templates...")
+            pdb70_db_path = self.db_config.get_database_path('pdb70')
+            logger.info(f"PDB70 database path returned: {pdb70_db_path}")
+
             pdb70_results = self._search_hhblits(
                 query_sequence, query_id,
-                database_path=self.db_config.get_database_path('pdb70'),
+                database_path=pdb70_db_path,
                 database_type='pdb70'
             )
             for result in pdb70_results:
@@ -467,10 +500,13 @@ class TemplateSearcher:
 
         # Search UniRef30 for sequence homologs
         if self.db_config.is_ready('uniref30'):
-            logger.info("Searching UniRef30 database for sequence homologs...")
+            logger.info("UniRef30 database is ready, searching for sequence homologs...")
+            uniref30_db_path = self.db_config.get_database_path('uniref30')
+            logger.info(f"UniRef30 database path returned: {uniref30_db_path}")
+
             uniref30_results = self._search_hhblits(
                 query_sequence, query_id,
-                database_path=self.db_config.get_database_path('uniref30'),
+                database_path=uniref30_db_path,
                 database_type='uniref30'
             )
             for result in uniref30_results:
@@ -481,8 +517,8 @@ class TemplateSearcher:
             logger.warning("UniRef30 database not ready, skipping homolog search")
 
         summary = results.get_summary()
-        logger.info(f"Dual search completed: {summary['structural_templates']} templates, "
-                   f"{summary['sequence_homologs']} homologs")
+        logger.info(f"=== Dual search completed: {summary['structural_templates']} templates, "
+                   f"{summary['sequence_homologs']} homologs ===")
 
         return results
 
@@ -537,40 +573,80 @@ class TemplateSearcher:
                     database_path: Optional[str] = None,
                     database_type: str = "pdb70") -> List[TemplateSearchResult]:
         """Search templates using HHblits."""
+        logger.info(f"=== HHblits Search Started ===")
+        logger.info(f"Database type: {database_type}")
+        logger.info(f"Provided database_path: {database_path}")
+
         try:
             # Use default database path if not provided
             if database_path is None:
+                logger.info(f"Database path is None, getting default path")
                 database_path = self._get_default_database_path(database_type)
+                logger.info(f"Got default database path: {database_path}")
                 if database_path is None:
                     logger.error(f"HHblits database {database_type} not found")
                     return []
+            else:
+                logger.info(f"Using provided database path: {database_path}")
+
+            # Check if database prefix exists (should include base name)
+            db_path_obj = Path(database_path)
+            logger.info(f"Database prefix: {database_path}")
+            logger.info(f"Database prefix path exists: {db_path_obj.exists()}")
+
+            # For debugging, check the parent directory contents
+            if db_path_obj.exists():
+                logger.info(f"Database directory contents: {list(db_path_obj.parent.iterdir())}")
+            else:
+                # Check if parent directory exists
+                parent_dir = db_path_obj.parent
+                if parent_dir.exists():
+                    logger.info(f"Parent directory exists: {parent_dir}")
+                    logger.info(f"Parent directory contents: {list(parent_dir.iterdir())}")
+                else:
+                    logger.warning(f"Parent directory does not exist: {parent_dir}")
 
             # Create temporary files
             with tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False) as f:
                 f.write(f">{query_id}\n{query_sequence}\n")
                 query_file = f.name
+                logger.info(f"Created query file: {query_file}")
 
             with tempfile.NamedTemporaryFile(mode='w', suffix='.hhr', delete=False) as f:
                 output_file = f.name
+                logger.info(f"Created output file: {output_file}")
 
             try:
-                # Configure HHblits parameters based on database type
-                if database_type == "pdb70":
-                    e_value = "1e-4"      # More stringent for structural templates
-                    coverage = "0.6"       # Higher coverage for templates
-                    max_seq = "1000"       # Focused search
-                else:  # uniref30 or others
-                    e_value = "1e-3"       # More permissive for homologs
-                    coverage = "0.4"       # Lower coverage for homologs
-                    max_seq = "5000"       # Comprehensive search
+                # Load HHblits parameters from config
+                import yaml
+                config_path = Path(__file__).parent.parent.parent / "config.yaml"
+                try:
+                    with open(config_path, 'r') as f:
+                        config = yaml.safe_load(f)
+                    template_config = config.get('template_search', {})
+                    hhblits_params = template_config.get('hhblits_parameters', {})
+                    db_params = hhblits_params.get(database_type, hhblits_params.get('pdb70', {}))
+
+                    e_value = db_params.get('e_value', "1e-3")
+                    coverage = db_params.get('coverage', "0.4")
+                    max_seq = db_params.get('max_sequences', "1000")
+                    iterations = db_params.get('iterations', "3")
+                except Exception as e:
+                    logger.warning(f"Could not load HHblits config, using defaults: {e}")
+                    # Fallback to relaxed defaults
+                    e_value = "1e-3"
+                    coverage = "0.4"
+                    max_seq = "1000"
+                    iterations = "3"
 
                 # Build HHblits command
+                # Use the database prefix directly (should be directory + base name)
                 cmd = [
                     'hhblits',
                     '-i', query_file,
                     '-o', output_file,
-                    '-d', database_path,
-                    '-n', '3',           # 3 iterations
+                    '-d', database_path,  # Use the database prefix directly
+                    '-n', iterations,     # Number of iterations from config
                     '-e', e_value,
                     '-cov', coverage,
                     '-maxseq', max_seq,
@@ -579,16 +655,24 @@ class TemplateSearcher:
                 ]
 
                 logger.info(f"Running HHblits against {database_type} database")
-                logger.debug(f"Command: {' '.join(cmd)}")
+                logger.info(f"Database path being used: {database_path}")
+                logger.info(f"Full HHblits command: {' '.join(cmd)}")
 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-                if result.returncode == 0:
-                    return self._parse_hhblits_output(output_file, query_sequence)
-                else:
+                logger.info(f"HHblits return code: {result.returncode}")
+                if result.returncode != 0:
                     logger.error(f"HHblits failed with return code {result.returncode}")
                     logger.error(f"Stderr: {result.stderr}")
                     logger.error(f"Stdout: {result.stdout}")
+                else:
+                    logger.info(f"HHblits completed successfully")
+
+                if result.returncode == 0:
+                    results = self._parse_hhblits_output(output_file, query_sequence)
+                    logger.info(f"Found {len(results)} results from HHblits")
+                    return results
+                else:
                     return []
 
             finally:
@@ -596,6 +680,7 @@ class TemplateSearcher:
                 try:
                     os.unlink(query_file)
                     os.unlink(output_file)
+                    logger.info("Cleaned up temporary files")
                 except OSError:
                     pass  # Files might already be deleted
 
@@ -604,6 +689,8 @@ class TemplateSearcher:
             return []
         except Exception as e:
             logger.error(f"HHblits search failed: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     def _get_default_database_path(self, database_type: str) -> Optional[str]:

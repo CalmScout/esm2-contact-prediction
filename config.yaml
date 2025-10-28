@@ -26,10 +26,14 @@ homology_databases:
     compressed_size_gb: 27
     extracted_size_gb: 56
     extract_to: "pdb70"
+    path: "data/homology_databases/pdb70"  # Explicit path to database directory
+    database_name: "pdb70"  # Name prefix for database files
     description: "PDB70 structural templates (70% identity clustering)"
     database_files:
       - "pdb70_a3m.ffdata"
       - "pdb70_a3m.ffindex"
+      - "pdb70_cs219.ffdata"
+      - "pdb70_cs219.ffindex"
       - "pdb70_hhm.ffdata"
       - "pdb70_hhm.ffindex"
 
@@ -40,9 +44,38 @@ homology_databases:
     compressed_size_gb: 66
     extracted_size_gb: 218
     extract_to: "UniRef30_2023_02_hhsuite"
+    path: "data/homology_databases/UniRef30_2023_02_hhsuite"  # Explicit path to database directory
+    database_name: "UniRef30_2023_02_hhsuite"  # Name prefix for database files
     description: "UniRef30 sequence homologs (30% identity clustering)"
     database_files:
-      - "UniRef30_2023_02_a3m.ffdata"
-      - "UniRef30_2023_02_a3m.ffindex"
-      - "UniRef30_2023_02_hhm.ffdata"
-      - "UniRef30_2023_02_hhm.ffindex"
+      - "UniRef30_2023_02_hhsuite_a3m.ffdata"
+      - "UniRef30_2023_02_hhsuite_a3m.ffindex"
+      - "UniRef30_2023_02_hhsuite_cs219.ffdata"
+      - "UniRef30_2023_02_hhsuite_cs219.ffindex"
+      - "UniRef30_2023_02_hhsuite_hhm.ffdata"
+      - "UniRef30_2023_02_hhsuite_hhm.ffindex"
+
+# Template search configuration
+template_search:
+  # Quality thresholds for TemplateSearcher (single filtering point)
+  quality_thresholds:
+    min_sequence_identity: 0.1    # 10% minimum sequence identity (very relaxed)
+    min_coverage: 0.2            # 20% minimum coverage (very relaxed)
+    max_e_value: 1e-2           # Maximum E-value (more permissive)
+
+  # HHblits parameters for different database types
+  hhblits_parameters:
+    pdb70:
+      e_value: "1e-2"           # Much more permissive E-value for structural templates
+      coverage: "0.2"           # Very low coverage requirement
+      max_sequences: "5000"     # Larger search space
+      iterations: "3"
+    uniref30:
+      e_value: "1e-2"           # More permissive E-value for sequence homologs
+      coverage: "0.2"           # Very low coverage for homologs
+      max_sequences: "10000"    # Much larger search space
+      iterations: "3"
+
+  # General search settings
+  max_templates: 20             # Maximum number of templates to process
+  cpu_limit: 2                 # Maximum CPU cores to use
