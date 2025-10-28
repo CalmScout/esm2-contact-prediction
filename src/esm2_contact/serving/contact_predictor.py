@@ -29,7 +29,7 @@ import os
 import json
 import warnings
 from pathlib import Path
-from typing import Dict, List, Any, Union, Optional, Type
+from typing import Dict, List, Union, Optional, TypedDict, Type
 
 import numpy as np
 import torch
@@ -38,6 +38,20 @@ import mlflow
 import mlflow.pyfunc
 from mlflow.models.signature import ModelSignature
 from mlflow.types import ColSpec, DataType, Schema
+
+
+class PredictionInput(TypedDict):
+    """TypedDict for prediction input format."""
+    features: np.ndarray
+
+
+class PredictionOutput(TypedDict):
+    """TypedDict for prediction output format."""
+    contacts: np.ndarray
+    probabilities: np.ndarray
+    confidence_scores: np.ndarray
+    threshold: float
+    shape: tuple[int, int]
 
 # Import project components
 try:
@@ -74,7 +88,7 @@ class ContactPredictor:
 
     def __init__(self,
                  model_path: Optional[str] = None,
-                 model_state: Optional[Dict] = None,
+                 model_state: Optional[Dict[str, Union[np.ndarray, int, float, str, bool]]] = None,
                  threshold: float = 0.5,
                  confidence_method: str = "probability",
                  device: Optional[str] = None):
@@ -146,7 +160,7 @@ class ContactPredictor:
         except Exception as e:
             raise RuntimeError(f"Failed to load model from {model_path}: {e}")
 
-    def _load_model_from_state(self, model_state: Dict):
+    def _load_model_from_state(self, model_state: Dict[str, Union[np.ndarray, int, float, str, bool]]):
         """Load model from state dictionary."""
         try:
             # Extract architecture info from model state
@@ -173,29 +187,29 @@ class ContactPredictor:
 
     def predict(self,
                 context: mlflow.pyfunc.PythonModelContext,
-                model_input: Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]) -> Dict[str, Any]:
+                model_input: Union[np.ndarray, torch.Tensor]) -> Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]:
         """
         Predict protein contacts from input features.
 
         Args:
             context: MLflow model context
-            model_input: Input features (numpy array, list of dicts, or torch tensor)
+            model_input: Input features (numpy array or torch tensor)
 
         Returns:
-            Dict[str, Any]: Prediction results including binary contacts and confidence scores
+            Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]: Prediction results including binary contacts and confidence scores
         """
         return self._predict_batch(model_input)
 
     def _predict_batch(self,
-                       model_input: Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]) -> Dict[str, Any]:
+                       model_input: Union[np.ndarray, torch.Tensor]) -> Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]:
         """
         Batch prediction with proper input handling.
 
         Args:
-            model_input: Input features in various formats
+            model_input: Input features (numpy array or torch tensor)
 
         Returns:
-            Dict[str, Any]: Prediction results
+            Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]: Prediction results
         """
         if self.model is None:
             raise RuntimeError("No model loaded. Use load_model() first.")
@@ -240,7 +254,7 @@ class ContactPredictor:
         except Exception as e:
             raise RuntimeError(f"Prediction failed: {e}")
 
-    def _prepare_input(self, model_input: Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]) -> torch.Tensor:
+    def _prepare_input(self, model_input: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Convert various input formats to PyTorch tensor."""
         if isinstance(model_input, torch.Tensor):
             return model_input
@@ -295,7 +309,7 @@ class ContactPredictor:
             warnings.warn(f"Unknown confidence method: {self.confidence_method}, using 'probability'")
             return probabilities
 
-    def predict_single(self, features: Union[np.ndarray, torch.Tensor]) -> Dict[str, Any]:
+    def predict_single(self, features: Union[np.ndarray, torch.Tensor]) -> Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]:
         """
         Predict contacts for a single protein.
 
@@ -303,7 +317,7 @@ class ContactPredictor:
             features: Input features for one protein
 
         Returns:
-            Dict[str, Any]: Prediction results for single protein
+            Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]: Prediction results for single protein
         """
         # Ensure input has batch dimension
         if len(features.shape) == 3:  # (channels, H, W)
@@ -402,7 +416,7 @@ def create_pyfunc_model_instance(signature: Optional[ModelSignature] = None,
 
         def predict(self,
                      context: Optional[mlflow.pyfunc.PythonModelContext],
-                     model_input: list[Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]]) -> Dict[str, Any]:
+                     model_input: list[Union[np.ndarray, torch.Tensor]]) -> Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]:
             """Make predictions with proper type hints.
 
             Args:
@@ -410,7 +424,7 @@ def create_pyfunc_model_instance(signature: Optional[ModelSignature] = None,
                 model_input: List of input features for prediction (MLflow expects list format)
 
             Returns:
-                Dict[str, Any]: Prediction results
+                Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]: Prediction results
             """
             # Ensure predictor is loaded
             if not hasattr(self, 'predictor'):
@@ -450,7 +464,7 @@ def create_pyfunc_model(model_path: str,
 
         def predict(self,
                      context: Optional[mlflow.pyfunc.PythonModelContext],
-                     model_input: list[Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]]) -> Dict[str, Any]:
+                     model_input: list[Union[np.ndarray, torch.Tensor]]) -> Dict[str, Union[np.ndarray, float, int, str, tuple[int, int]]]:
             """Make predictions with proper type hints."""
             # Ensure predictor is loaded
             if not hasattr(self, 'predictor'):

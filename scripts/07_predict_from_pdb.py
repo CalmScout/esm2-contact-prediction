@@ -1,12 +1,53 @@
 #!/usr/bin/env python3
 """
-Simple PDB Inference Script
+Enhanced PDB Contact Prediction Script
 
-This script provides a simple function to predict contacts directly from a PDB file.
-It's a lightweight alternative to the full pipeline for quick predictions.
+This script provides a comprehensive solution for predicting protein contacts from PDB files
+using trained ESM2-based models. It's compatible with the latest upstream code and supports
+various model checkpoint formats.
 
-Usage:
-    uv run python scripts/predict_from_pdb.py --pdb-file my_protein.pdb --model-path model.pth
+Key Features:
+- Compatible with new BinaryContactCNN architecture
+- Handles multiple checkpoint formats (old/new training pipeline)
+- Real ESM2 embeddings + pattern-based template features
+- Enhanced error handling and input validation
+- Comprehensive output with confidence scores and metadata
+- Automatic threshold optimization based on protein size
+- Memory-optimized GPU/CPU processing
+
+Usage Examples:
+    # Basic usage
+    uv run python scripts/07_predict_from_pdb.py \\
+        --pdb-file data/my_protein.pdb \\
+        --model-path models/best_model.pth \\
+        --output predictions.json
+
+    # With custom threshold
+    uv run python scripts/07_predict_from_pdb.py \\
+        --pdb-file data/my_protein.pdb \\
+        --model-path models/best_model.pth \\
+        --threshold 0.3 \\
+        --output predictions.json
+
+    # Verbose output for debugging
+    uv run python scripts/07_predict_from_pdb.py \\
+        --pdb-file data/my_protein.pdb \\
+        --model-path models/best_model.pth \\
+        --verbose
+
+Output Format:
+    - contact_binary: 2D array of binary contact predictions (0/1)
+    - contact_probabilities: 2D array of prediction probabilities
+    - confidence_scores: 2D array of confidence values
+    - model_info: Model architecture and parameters
+    - prediction_statistics: Statistics about predictions
+    - performance: Timing and performance metrics
+
+Compatibility:
+    - Works with models trained using the new BinaryContactCNN architecture
+    - Supports both old and new checkpoint formats
+    - Compatible with 68-channel input (64 ESM2 + 4 template features)
+    - Handles various model configurations (different base_channels, dropout_rates, etc.)
 """
 
 import os
@@ -24,7 +65,22 @@ import numpy as np
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.esm2_contact.training.model import BinaryContactCNN
+# Try imports with error handling
+try:
+    from src.esm2_contact.training.model import BinaryContactCNN
+    MODEL_IMPORTS_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import training modules: {e}")
+    MODEL_IMPORTS_AVAILABLE = False
+
+# MLflow imports
+try:
+    import mlflow
+    import mlflow.pyfunc
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    mlflow = None
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -191,25 +247,137 @@ def generate_pattern_based_template_features(sequence: str) -> np.ndarray:
     print(f"   ✅ Template channels created: {template_channels.shape}")
     return template_channels
 
+def load_model_from_mlflow(model_uri: str, device: torch.device):
+    """Load trained model from MLflow with enhanced compatibility."""
+    if not MLFLOW_AVAILABLE:
+        raise RuntimeError("MLflow is not available")
+    if not MODEL_IMPORTS_AVAILABLE:
+        raise RuntimeError("Required model imports are not available")
+
+    try:
+        print(f"🔄 Loading model from MLflow: {model_uri}")
+
+        # Extract model artifact path from URI
+        if '/artifacts/' in model_uri:
+            artifact_path = model_uri
+        else:
+            # If just the run ID is provided, construct artifact path
+            artifact_path = f"{model_uri}/artifacts/best_model_checkpoint"
+
+        print(f"   📥 MLflow artifact path: {artifact_path}")
+
+        # Download the model artifact
+        import tempfile
+        local_path = mlflow.artifacts.download_artifacts(artifact_path)
+
+        print(f"   📁 Downloaded to: {local_path}")
+
+        # Handle different artifact types
+        if Path(local_path).is_dir():
+            # Look for .pth files in the directory
+            pth_files = list(Path(local_path).glob("*.pth"))
+            if pth_files:
+                model_file_path = pth_files[0]
+                print(f"   📄 Found model file: {model_file_path.name}")
+            else:
+                raise RuntimeError(f"No .pth files found in {local_path}")
+        else:
+            model_file_path = local_path
+
+        # Load the model from the downloaded file
+        model = load_model(str(model_file_path), device)
+
+        # Try to extract run metadata
+        try:
+            # Get run info from URI
+            run_id = model_uri.split('/')[1] if len(model_uri.split('/')) > 1 else "unknown"
+            client = mlflow.tracking.MlflowClient()
+            run = client.get_run(run_id)
+
+            print(f"   📊 Run information:")
+            print(f"      Run ID: {run_id}")
+            print(f"      Experiment: {run.info.experiment_id}")
+            print(f"      Status: {run.info.status}")
+            print(f"      Best AUC: {run.data.metrics.get('best_auc', 'N/A')}")
+
+            # Display key parameters
+            params = run.data.params
+            if params:
+                print(f"      Key parameters:")
+                key_params = ['learning_rate', 'batch_size', 'base_channels', 'dataset_fraction']
+                for param in key_params:
+                    if param in params:
+                        print(f"         {param}: {params[param]}")
+
+        except Exception as e:
+            print(f"   ⚠️  Could not fetch run metadata: {e}")
+
+        return model
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model from MLflow {model_uri}: {e}")
+
+
 def load_model(model_path: str, device: torch.device):
-    """Load trained model from checkpoint."""
+    """Load trained model from checkpoint with enhanced compatibility."""
+    if not MODEL_IMPORTS_AVAILABLE:
+        raise RuntimeError("Required model imports are not available")
+
     try:
         print(f"🧠 Loading model from {model_path}")
 
         checkpoint = torch.load(model_path, map_location=device)
 
-        # Extract model architecture and weights
+        # Enhanced checkpoint format handling
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model_state = checkpoint['model_state_dict']
-            config = checkpoint.get('config', {})
+
+            # Try to get config from various possible locations
+            config = {}
+            if 'config' in checkpoint:
+                config = checkpoint['config']
+            elif 'model_config' in checkpoint:
+                config = checkpoint['model_config']
+
+            # Extract model architecture parameters with defaults
             in_channels = config.get('in_channels', 68)
             base_channels = config.get('base_channels', 32)
             dropout_rate = config.get('dropout_rate', 0.1)
+
+            # Additional metadata
+            if 'history' in checkpoint:
+                print(f"   📊 Training history found in checkpoint")
+            if 'best_auc' in checkpoint:
+                print(f"   🎯 Best validation AUC: {checkpoint['best_auc']:.4f}")
+
+        elif isinstance(checkpoint, dict) and 'model_config' in checkpoint:
+            # Alternative format
+            model_state = checkpoint['model_state_dict']
+            model_config = checkpoint['model_config']
+            in_channels = model_config.get('in_channels', 68)
+            base_channels = model_config.get('base_channels', 32)
+            dropout_rate = model_config.get('dropout_rate', 0.1)
+
         else:
-            # Just state dict - infer architecture
+            # Just state dict - try to infer architecture from model state
             model_state = checkpoint
-            in_channels = 68  # Default for ESM2 contact prediction
-            base_channels = 32
+            print(f"   🔍 Inferring architecture from model state dict...")
+
+            # Try to infer from first conv layer weight shape
+            if 'conv1.0.weight' in model_state:
+                first_conv_shape = model_state['conv1.0.weight'].shape
+                in_channels = first_conv_shape[1]
+                base_channels = first_conv_shape[0]
+            elif 'predictor.0.weight' in model_state:
+                # Try to infer from predictor layer
+                predictor_shape = model_state['predictor.0.weight'].shape
+                base_channels = predictor_shape[0] // 4  # Reverse of architecture
+                in_channels = 68
+            else:
+                # Fallback defaults
+                print(f"   ⚠️  Could not infer architecture, using defaults")
+                in_channels = 68
+                base_channels = 32
             dropout_rate = 0.1
 
         # Create and load model
@@ -218,19 +386,37 @@ def load_model(model_path: str, device: torch.device):
             base_channels=base_channels,
             dropout_rate=dropout_rate
         )
-        model.load_state_dict(model_state)
+
+        # Load state dict with error handling for mismatched keys
+        try:
+            model.load_state_dict(model_state, strict=True)
+            print(f"   ✅ Model loaded with strict matching")
+        except RuntimeError as e:
+            if "Missing key(s)" in str(e) or "Unexpected key(s)" in str(e):
+                print(f"   ⚠️  State dict mismatch, trying non-strict loading...")
+                try:
+                    model.load_state_dict(model_state, strict=False)
+                    print(f"   ✅ Model loaded with non-strict matching")
+                except RuntimeError as e2:
+                    raise RuntimeError(f"Failed to load model even with non-strict matching: {e2}")
+            else:
+                raise e
+
         model.to(device)
         model.eval()
 
+        # Print model information
+        model_info = model.get_model_info()
         print(f"   ✅ Model loaded successfully")
         print(f"   Architecture: {in_channels}→{base_channels} channels")
         print(f"   Parameters: {sum(p.numel() for p in model.parameters()):,}")
+        print(f"   Memory footprint: {model_info['memory_footprint_mb']:.1f}MB")
         print(f"   Device: {device}")
 
         return model
 
     except Exception as e:
-        raise RuntimeError(f"Failed to load model: {e}")
+        raise RuntimeError(f"Failed to load model from {model_path}: {e}")
 
 
 def extract_sequence_from_pdb_simple(pdb_path: str) -> str:
@@ -455,13 +641,69 @@ def validate_predictions(contact_binary: np.ndarray, contact_probs: np.ndarray, 
         'probability_analysis': prob_analysis
     }
 
-def predict_contacts(pdb_path: str, model_path: str, threshold: float = None):
+def validate_inputs(pdb_path: str, model_path: str = None, threshold: float = None, model_uri: str = None) -> tuple:
+    """Validate all inputs before processing."""
+    errors = []
+    warnings_list = []
+
+    # Validate PDB file
+    if not Path(pdb_path).exists():
+        errors.append(f"PDB file not found: {pdb_path}")
+    elif not Path(pdb_path).suffix.lower() in ['.pdb', '.ent', '.cif']:
+        warnings_list.append(f"Unexpected PDB file extension: {Path(pdb_path).suffix}")
+    else:
+        # Check file size
+        pdb_size = Path(pdb_path).stat().st_size
+        if pdb_size == 0:
+            errors.append(f"PDB file is empty: {pdb_path}")
+        elif pdb_size > 100 * 1024 * 1024:  # 100MB
+            warnings_list.append(f"Large PDB file detected ({pdb_size/1024/1024:.1f}MB), processing may be slow")
+
+    # Validate model source
+    if model_path and model_uri:
+        errors.append("Cannot specify both model-path and model-uri")
+    elif model_path:
+        # Validate local model file
+        if not Path(model_path).exists():
+            errors.append(f"Model file not found: {model_path}")
+        elif not Path(model_path).suffix.lower() in ['.pth', '.pt']:
+            warnings_list.append(f"Unexpected model file extension: {Path(model_path).suffix}")
+        else:
+            # Check file size
+            model_size = Path(model_path).stat().st_size
+            if model_size == 0:
+                errors.append(f"Model file is empty: {model_path}")
+    elif model_uri:
+        # Validate MLflow URI
+        if not MLFLOW_AVAILABLE:
+            errors.append("MLflow is not available but model-uri was specified")
+        elif not model_uri.startswith('mlruns/'):
+            warnings_list.append(f"Unusual MLflow URI format: {model_uri}")
+    else:
+        errors.append("Either model-path or model-uri must be specified")
+
+    # Validate threshold
+    if threshold is not None:
+        if not isinstance(threshold, (int, float)):
+            errors.append(f"Threshold must be a number, got {type(threshold)}")
+        elif not 0.0 <= threshold <= 1.0:
+            errors.append(f"Threshold must be between 0.0 and 1.0, got {threshold}")
+
+    # Check required dependencies
+    if not MODEL_IMPORTS_AVAILABLE:
+        errors.append("Required model imports are not available. Check your installation.")
+
+    return errors, warnings_list
+
+
+def predict_contacts(pdb_path: str, model_path: str = None, model_uri: str = None, threshold: float = None):
     """
     Predict protein contacts from PDB file using real ESM2 and homology features.
 
     Args:
         pdb_path (str): Path to PDB file
-        model_path (str): Path to trained model
+        model_path (str): Path to trained model (.pth file)
+        model_uri (str): MLflow model URI
         threshold (float): Threshold for binary predictions (auto-calculated if None)
 
     Returns:
@@ -472,25 +714,67 @@ def predict_contacts(pdb_path: str, model_path: str, threshold: float = None):
 
     print(f"🚀 Starting Real PDB Contact Prediction")
     print(f"   PDB file: {pdb_path}")
-    print(f"   Model: {model_path}")
+    if model_path:
+        print(f"   Model: {model_path} (local file)")
+    elif model_uri:
+        print(f"   Model: {model_uri} (MLflow)")
+    else:
+        raise ValueError("Either model_path or model_uri must be provided")
     print(f"="*50)
 
-    # Setup device
+    # Validate inputs
+    errors, warnings_list = validate_inputs(pdb_path, model_path, threshold, model_uri)
+
+    if errors:
+        print(f"\n❌ Input validation failed:")
+        for error in errors:
+            print(f"   • {error}")
+        raise ValueError(f"Input validation failed: {'; '.join(errors)}")
+
+    if warnings_list:
+        print(f"\n⚠️  Warnings:")
+        for warning in warnings_list:
+            print(f"   • {warning}")
+
+    # Setup device with memory check
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"🖥️  Device: {device}")
 
+    if device.type == 'cuda':
+        try:
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            gpu_memory_free = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()) / 1024**3
+            print(f"   GPU Memory: {gpu_memory:.1f}GB total, {gpu_memory_free:.1f}GB available")
+        except:
+            print(f"   GPU Memory: Could not determine memory usage")
+
     # Load model
     model_start = time.time()
-    model = load_model(model_path, device)
-    model_time = time.time() - model_start
-    print(f"   ⏱️  Model loading: {model_time:.1f}s")
+    try:
+        if model_path:
+            model = load_model(model_path, device)
+            model_source = f"local file: {model_path}"
+        elif model_uri:
+            model = load_model_from_mlflow(model_uri, device)
+            model_source = f"MLflow: {model_uri}"
+        else:
+            raise ValueError("No model source specified")
+        model_time = time.time() - model_start
+        print(f"   ⏱️  Model loading: {model_time:.1f}s")
+    except Exception as e:
+        print(f"   ❌ Model loading failed: {e}")
+        raise
 
     # Process PDB file
     process_start = time.time()
-    features_tensor, sequence = process_pdb_file(pdb_path, device)
-    process_time = time.time() - process_start
-    print(f"   ⏱️  Feature processing: {process_time:.1f}s")
-    sequence_length = len(sequence)
+    try:
+        features_tensor, sequence = process_pdb_file(pdb_path, device)
+        process_time = time.time() - process_start
+        print(f"   ⏱️  Feature processing: {process_time:.1f}s")
+        sequence_length = len(sequence)
+    except Exception as e:
+        print(f"   ❌ Feature processing failed: {e}")
+        raise
 
     # Make prediction
     print(f"\n🔮 Making prediction...")
@@ -542,6 +826,9 @@ def predict_contacts(pdb_path: str, model_path: str, threshold: float = None):
 
     contact_binary = binary_predictions
 
+    # Calculate confidence scores using the same method as serving module
+    confidence_scores = np.maximum(contact_probs, contact_probs.T)  # Symmetric confidence
+
     # Prepare results - convert numpy types to Python types for JSON serialization
     results = {
         'pdb_file': str(pdb_path),
@@ -550,6 +837,7 @@ def predict_contacts(pdb_path: str, model_path: str, threshold: float = None):
         'sequence_length': int(sequence_length),
         'contact_probabilities': contact_probs.tolist(),
         'contact_binary': contact_binary.tolist(),
+        'confidence_scores': confidence_scores.tolist(),
         'threshold': float(threshold),
         'contact_density': float(validation['contact_density']),
         'num_contacts': int(validation['num_contacts']),
@@ -557,33 +845,114 @@ def predict_contacts(pdb_path: str, model_path: str, threshold: float = None):
         'is_realistic': bool(validation['is_realistic']),
         'device': str(device),
         'features_used': 'real_esm2_and_pattern_templates',  # Real ESM2 + pattern templates (same as training)
+        'model_info': {
+            'input_channels': 68,
+            'base_channels': getattr(model, 'base_channels', 32),
+            'total_parameters': sum(p.numel() for p in model.parameters()),
+            'memory_footprint_mb': sum(p.numel() for p in model.parameters()) * 4 / (1024 * 1024)
+        },
+        'prediction_statistics': {
+            'max_probability': float(np.max(contact_probs)),
+            'mean_probability': float(np.mean(contact_probs)),
+            'std_probability': float(np.std(contact_probs)),
+            'max_confidence': float(np.max(confidence_scores)),
+            'mean_confidence': float(np.mean(confidence_scores))
+        },
+        'probability_analysis': validation['probability_analysis'],
         'performance': {
             'total_time': float(total_time),
             'model_load_time': float(model_time),
             'feature_processing_time': float(process_time),
-            'inference_time': float(pred_time)
+            'inference_time': float(pred_time),
+            'features_per_second': float(sequence_length ** 2 / pred_time) if pred_time > 0 else 0.0
         }
     }
 
     return results
 
 
+def convert_numpy_types(obj):
+    """Convert numpy types to Python types for JSON serialization."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.generic):
+        return obj.item()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_types(item) for item in obj)
+    else:
+        return obj
+
+
 def save_predictions(results: dict, output_path: str):
     """Save prediction results to file."""
     try:
         import json
+        # Convert numpy types to Python types
+        json_ready_results = convert_numpy_types(results)
         with open(output_path, 'w') as f:
-            json.dump(results, f, indent=2)
+            json.dump(json_ready_results, f, indent=2)
         print(f"💾 Results saved to: {output_path}")
     except Exception as e:
         print(f"⚠️  Could not save results: {e}")
+
+
+def test_compatibility():
+    """Test script compatibility and dependencies."""
+    print("🧪 Testing compatibility...")
+
+    # Check imports
+    if MODEL_IMPORTS_AVAILABLE:
+        print("   ✅ Model imports available")
+    else:
+        print("   ❌ Model imports failed - check your installation")
+        return False
+
+    # Check torch version
+    torch_version = torch.__version__
+    print(f"   ✅ PyTorch version: {torch_version}")
+
+    # Check device availability
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        print(f"   ✅ CUDA available: {gpu_name}")
+    else:
+        print("   ⚠️  CUDA not available, will use CPU")
+
+    # Check BioPython
+    try:
+        import Bio
+        print(f"   ✅ BioPython available: {Bio.__version__}")
+    except ImportError:
+        print("   ⚠️  BioPython not available - PDB parsing may be limited")
+
+    # Check ESM availability
+    try:
+        import esm
+        print(f"   ✅ ESM available")
+    except ImportError:
+        print("   ❌ ESM not available - required for embeddings")
+        return False
+
+    print("   ✅ All critical dependencies available\n")
+    return True
 
 
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(
         description="Predict protein contacts from PDB file",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --pdb-file protein.pdb --model-path model.pth
+  %(prog)s --pdb-file protein.pdb --model-path model.pth --threshold 0.3
+  %(prog)s --pdb-file protein.pdb --model-path model.pth --verbose
+  %(prog)s --pdb-file protein.pdb --model-uri "mlruns/exp_id/run_id/artifacts/best_model_checkpoint"
+        """
     )
 
     parser.add_argument(
@@ -593,18 +962,24 @@ def main():
         help='Path to PDB file'
     )
 
-    parser.add_argument(
+    # Model specification (mutually exclusive)
+    model_group = parser.add_mutually_exclusive_group(required=True)
+    model_group.add_argument(
         '--model-path',
         type=str,
-        required=True,
         help='Path to trained model (.pth file)'
+    )
+    model_group.add_argument(
+        '--model-uri',
+        type=str,
+        help='MLflow model URI (e.g., "mlruns/exp_id/run_id/artifacts/best_model_checkpoint")'
     )
 
     parser.add_argument(
         '--threshold',
         type=float,
-        default=0.5,
-        help='Threshold for binary predictions'
+        default=None,
+        help='Threshold for binary predictions (auto-calculated if not provided)'
     )
 
     parser.add_argument(
@@ -617,21 +992,30 @@ def main():
     parser.add_argument(
         '--verbose',
         action='store_true',
-        help='Enable verbose output'
+        help='Enable verbose output with error details'
+    )
+
+    parser.add_argument(
+        '--test-compatibility',
+        action='store_true',
+        help='Test compatibility before running prediction'
     )
 
     args = parser.parse_args()
 
-    # Validate inputs
-    if not Path(args.pdb_file).exists():
-        raise FileNotFoundError(f"PDB file not found: {args.pdb_file}")
-
-    if not Path(args.model_path).exists():
-        raise FileNotFoundError(f"Model file not found: {args.model_path}")
+    # Test compatibility if requested
+    if args.test_compatibility:
+        if not test_compatibility():
+            return 1
 
     try:
-        # Run prediction
-        results = predict_contacts(args.pdb_file, args.model_path, args.threshold)
+        # Run prediction (includes its own validation)
+        results = predict_contacts(
+            pdb_path=args.pdb_file,
+            model_path=getattr(args, 'model_path', None),
+            model_uri=getattr(args, 'model_uri', None),
+            threshold=args.threshold
+        )
 
         # Save results
         save_predictions(results, args.output)
@@ -640,10 +1024,16 @@ def main():
         print(f"   📄 Results: {args.output}")
         print(f"   📏 Sequence length: {results['sequence_length']}")
         print(f"   📊 Contact density: {results['contact_density']:.4f}")
+        print(f"   🔢 Total contacts: {results['num_contacts']:,}")
+        if 'model_info' in results:
+            print(f"   🧠 Model parameters: {results['model_info']['total_parameters']:,}")
         print(f"   ✅ Ready for downstream analysis!")
 
     except Exception as e:
         print(f"\n❌ Prediction failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
         return 1
 
     return 0

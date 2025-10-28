@@ -784,14 +784,13 @@ class CNNTrainer:
                     'history': history
                 }
 
-                # Save best model
-                save_path = config.get('save_path', 'best_cnn_model.pth')
-                torch.save(best_model_state, save_path)
+                # Note: Global model saving removed - models are now saved only via MLflow
+                # This prevents overwriting and ensures each run's best model is preserved
                 if self.verbose:
                     if use_global_progress:
-                        epoch_pbar.write(f"🏆 New best model! AUC: {best_auc:.4f}")
+                        epoch_pbar.write(f"🏆 New best model! AUC: {best_auc:.4f} (saved to MLflow)")
                     else:
-                        print(f"   🏆 New best model saved! AUC: {best_auc:.4f}")
+                        print(f"   🏆 New best model! AUC: {best_auc:.4f} (saved to MLflow)")
             else:
                 patience_counter += 1
 
@@ -881,15 +880,25 @@ class CNNTrainer:
                 # Log training history as artifact
                 self.mlflow_tracker.log_training_history(history)
 
-                # Save best model checkpoint as artifact
+                # Save best model checkpoint as artifact with enhanced metadata
                 if best_model_state:
                     import tempfile
                     with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
-                        torch.save(best_model_state, f.name)
+                        # Enhanced checkpoint with metadata for easier identification
+                        enhanced_checkpoint = best_model_state.copy()
+                        enhanced_checkpoint['run_metadata'] = {
+                            'run_id': self.mlflow_tracker.run.info.run_id,
+                            'experiment_id': self.mlflow_tracker.run.info.experiment_id,
+                            'best_auc': best_auc,
+                            'best_epoch': best_epoch + 1,
+                            'model_type': 'binary_cnn',
+                            'timestamp': time.time()
+                        }
+                        torch.save(enhanced_checkpoint, f.name)
                         self.mlflow_tracker.log_artifact(f.name, "best_model_checkpoint")
                         os.unlink(f.name)
                     if self.verbose:
-                        print(f"   💾 Logged best model checkpoint")
+                        print(f"   💾 Logged best model checkpoint (AUC: {best_auc:.4f})")
 
                 # Create and log custom PyFunc model for serving with rich functionality
                 try:
