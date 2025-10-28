@@ -529,3 +529,379 @@ def get_best_run(experiment_name: str,
     except Exception as e:
         warnings.warn(f"Failed to get best run: {e}")
         return None
+
+
+def log_pyfunc_model_to_mlflow(model_path: str,
+                              artifact_path: str = "esm2_contact_pyfunc",
+                              signature: Optional[Any] = None,
+                              conda_env: Optional[Dict] = None,
+                              **kwargs):
+    """
+    Log ESM2 contact prediction model as MLflow PyFunc with modern API.
+
+    Args:
+        model_path (str): Path to trained model checkpoint
+        artifact_path (str): MLflow artifact path for the model
+        signature (Optional[Any]): Model signature
+        conda_env (Optional[Dict]): Conda environment specification
+        **kwargs: Additional arguments for model creation
+
+    Raises:
+        RuntimeError: If model logging fails
+    """
+    try:
+        from ..serving.contact_predictor import create_pyfunc_model_instance
+
+        print(f"🔄 Logging PyFunc model to MLflow: {artifact_path}")
+
+        # Create modern PyFunc model instance
+        pyfunc_model = create_pyfunc_model_instance(
+            model_path=model_path,
+            enable_esm2_integration=True,
+            **kwargs
+        )
+
+        # Create enhanced conda environment if not provided
+        if conda_env is None:
+            conda_env = {
+                'channels': ['defaults', 'conda-forge', 'pytorch'],
+                'dependencies': [
+                    'python=3.10',
+                    'pytorch>=2.0.0',
+                    'torchvision>=0.15.0',
+                    'numpy>=1.20.0',
+                    'mlflow>=2.15.0',
+                    'scikit-learn>=1.0.0',
+                    'pandas>=1.3.0',
+                    'tqdm>=4.60.0',
+                    'biopython>=1.79',
+                    {
+                        'pip': [
+                            'pip>=23.0.0',
+                            'setuptools>=65.0.0',
+                            'wheel>=0.40.0',
+                            'fair-esm>=2.0.0'
+                        ]
+                    }
+                ],
+                'name': 'esm2_contact_pyfunc_env'
+            }
+
+        # Log model to MLflow
+        mlflow.pyfunc.log_model(
+            pyfunc_model,
+            artifact_path=artifact_path,
+            signature=signature,
+            artifacts={'model': model_path},
+            conda_env=conda_env
+        )
+
+        print(f"✅ PyFunc model logged to MLflow: {artifact_path}")
+        print(f"   Model path: {model_path}")
+        print(f"   Artifact path: {artifact_path}")
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to log PyFunc model to MLflow: {e}")
+
+
+def load_pyfunc_model_from_run(run_id: str,
+                              artifact_path: str = "esm2_contact_pyfunc",
+                              tracking_uri: Optional[str] = None) -> Any:
+    """
+    Load PyFunc model from MLflow run.
+
+    Args:
+        run_id (str): MLflow run ID
+        artifact_path (str): Artifact path within the run
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Returns:
+        Any: Loaded PyFunc model
+
+    Raises:
+        RuntimeError: If model loading fails
+    """
+    try:
+        # Set tracking URI if provided
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        # Construct model URI
+        model_uri = f"runs:/{run_id}/{artifact_path}"
+
+        print(f"🔄 Loading PyFunc model from run: {run_id}")
+
+        # Load model
+        model = mlflow.pyfunc.load_model(model_uri)
+
+        print(f"✅ PyFunc model loaded from: {model_uri}")
+        return model
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to load PyFunc model from run {run_id}: {e}")
+
+
+def get_best_pyfunc_model(experiment_name: str,
+                         metric_name: str = "val_auc",
+                         artifact_path: str = "esm2_contact_pyfunc",
+                         tracking_uri: Optional[str] = None) -> Optional[Any]:
+    """
+    Get the best PyFunc model from an experiment based on a metric.
+
+    Args:
+        experiment_name (str): Name of the MLflow experiment
+        metric_name (str): Name of the metric to optimize
+        artifact_path (str): Artifact path for the PyFunc model
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Returns:
+        Optional[Any]: Best PyFunc model or None
+
+    Raises:
+        RuntimeError: If model loading fails
+    """
+    try:
+        # Get best run
+        best_run = get_best_run(experiment_name, metric_name, tracking_uri)
+
+        if best_run is None:
+            print(f"⚠️  No runs found for experiment: {experiment_name}")
+            return None
+
+        print(f"🏆 Best run found: {best_run.info.run_id}")
+        print(f"   {metric_name}: {best_run.data.metrics.get(metric_name, 'N/A')}")
+
+        # Load PyFunc model from best run
+        model = load_pyfunc_model_from_run(
+            best_run.info.run_id,
+            artifact_path=artifact_path,
+            tracking_uri=tracking_uri
+        )
+
+        return model
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to get best PyFunc model: {e}")
+
+
+def create_pyfunc_model_registry_entry(model_uri: str,
+                                     registered_model_name: str,
+                                     version: Optional[str] = None,
+                                     description: str = "ESM2 Contact Prediction PyFunc Model",
+                                     tags: Optional[Dict[str, str]] = None,
+                                     tracking_uri: Optional[str] = None):
+    """
+    Create MLflow Model Registry entry for PyFunc model.
+
+    Args:
+        model_uri (str): MLflow model URI
+        registered_model_name (str): Name for the registered model
+        version (Optional[str]): Version for the model
+        description (str): Model description
+        tags (Optional[Dict[str, str]]): Model tags
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Returns:
+        str: Model version URI
+
+    Raises:
+        RuntimeError: If registry entry creation fails
+    """
+    try:
+        # Set tracking URI if provided
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        client = mlflow.tracking.MlflowClient()
+
+        print(f"📝 Creating model registry entry: {registered_model_name}")
+
+        # Create registered model if it doesn't exist
+        try:
+            registered_model = client.get_registered_model(registered_model_name)
+            print(f"   Using existing registered model: {registered_model_name}")
+        except Exception:
+            # Create new registered model
+            client.create_registered_model(
+                name=registered_model_name,
+                description=description,
+                tags=tags or {}
+            )
+            print(f"   Created new registered model: {registered_model_name}")
+
+        # Create model version
+        model_version = client.create_model_version(
+            name=registered_model_name,
+            source=model_uri,
+            run_id=model_uri.split(':')[1] if ':' in model_uri else None
+        )
+
+        model_version_uri = f"models:/{registered_model_name}/{model_version.version}"
+
+        print(f"✅ Model registry entry created:")
+        print(f"   Model: {registered_model_name}")
+        print(f"   Version: {model_version.version}")
+        print(f"   URI: {model_version_uri}")
+
+        return model_version_uri
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to create model registry entry: {e}")
+
+
+def transition_pyfunc_model_stage(model_name: str,
+                                 version: str,
+                                 stage: str = "Production",
+                                 archive_existing_versions: bool = True,
+                                 tracking_uri: Optional[str] = None):
+    """
+    Transition PyFunc model to a specific stage in Model Registry.
+
+    Args:
+        model_name (str): Registered model name
+        version (str): Model version
+        stage (str): Target stage (Staging, Production, Archived)
+        archive_existing_versions (bool): Whether to archive existing versions
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Raises:
+        RuntimeError: If stage transition fails
+    """
+    try:
+        # Set tracking URI if provided
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        client = mlflow.tracking.MlflowClient()
+
+        print(f"🔄 Transitioning model to stage:")
+        print(f"   Model: {model_name}")
+        print(f"   Version: {version}")
+        print(f"   Target stage: {stage}")
+
+        # Transition to new stage
+        client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage=stage,
+            archive_existing_versions=archive_existing_versions
+        )
+
+        print(f"✅ Model transitioned to {stage} stage")
+
+        # Get model version details
+        model_version = client.get_model_version(model_name, version)
+        print(f"   Current stage: {model_version.current_stage}")
+        print(f"   Status: {model_version.status}")
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to transition model stage: {e}")
+
+
+def load_production_pyfunc_model(registered_model_name: str,
+                               tracking_uri: Optional[str] = None) -> Any:
+    """
+    Load production version of PyFunc model from Model Registry.
+
+    Args:
+        registered_model_name (str): Registered model name
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Returns:
+        Any: Loaded production model
+
+    Raises:
+        RuntimeError: If model loading fails
+    """
+    try:
+        # Set tracking URI if provided
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        # Load production model
+        model_uri = f"models:/{registered_model_name}/Production"
+
+        print(f"🔄 Loading production model: {registered_model_name}")
+
+        model = mlflow.pyfunc.load_model(model_uri)
+
+        print(f"✅ Production model loaded from: {model_uri}")
+        return model
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to load production model {registered_model_name}: {e}")
+
+
+def get_pyfunc_model_metrics(model_uri: str,
+                            tracking_uri: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get metrics and metadata for PyFunc model.
+
+    Args:
+        model_uri (str): MLflow model URI
+        tracking_uri (Optional[str]): MLflow tracking URI
+
+    Returns:
+        Dict[str, Any]: Model metrics and metadata
+
+    Raises:
+        RuntimeError: If metrics retrieval fails
+    """
+    try:
+        # Set tracking URI if provided
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        client = mlflow.tracking.MlflowClient()
+
+        # Extract run ID from model URI
+        if "runs:/" in model_uri:
+            run_id = model_uri.split("/")[1]
+        elif "models:/" in model_uri:
+            # Get model version info
+            model_name = model_uri.split("/")[1]
+            version_or_stage = model_uri.split("/")[2]
+
+            # Get model version details
+            if version_or_stage in ["Staging", "Production", "Archived"]:
+                model_versions = client.search_model_versions(f"name='{model_name}' and stage='{version_or_stage}'")
+                if model_versions:
+                    run_id = model_versions[0].run_id
+                else:
+                    raise ValueError(f"No model found in stage {version_or_stage}")
+            else:
+                model_version = client.get_model_version(model_name, version_or_stage)
+                run_id = model_version.run_id
+        else:
+            raise ValueError(f"Unsupported model URI format: {model_uri}")
+
+        # Get run information
+        run = client.get_run(run_id)
+
+        # Extract metrics and parameters
+        metrics = dict(run.data.metrics)
+        params = dict(run.data.params)
+        tags = dict(run.data.tags)
+
+        # Get model info
+        model_info = {
+            'model_uri': model_uri,
+            'run_id': run_id,
+            'experiment_id': run.info.experiment_id,
+            'status': run.info.status,
+            'start_time': run.info.start_time,
+            'end_time': run.info.end_time,
+            'metrics': metrics,
+            'parameters': params,
+            'tags': tags
+        }
+
+        # Calculate duration if available
+        if run.info.start_time and run.info.end_time:
+            model_info['duration_ms'] = run.info.end_time - run.info.start_time
+            model_info['duration_minutes'] = model_info['duration_ms'] / (1000 * 60)
+
+        return model_info
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to get PyFunc model metrics: {e}")

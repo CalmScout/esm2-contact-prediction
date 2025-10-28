@@ -902,7 +902,7 @@ class CNNTrainer:
 
                 # Create and log custom PyFunc model for serving with rich functionality
                 try:
-                    from ..serving.contact_predictor import create_pyfunc_model_instance
+                    from ..serving.pyfunc_model import create_pyfunc_model_instance
 
                     # Save best model to temporary file for PyFunc artifacts
                     if best_model_state:

@@ -57,6 +57,8 @@ import warnings
 import hashlib
 import gc
 from pathlib import Path
+from typing import List, Dict, Any, Optional
+
 import torch
 import h5py
 import numpy as np
@@ -84,6 +86,26 @@ except ImportError:
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
+
+# Try imports for enhanced PyFunc integration
+try:
+    from src.esm2_contact.serving import (
+        load_pyfunc_model,
+        predict_from_pdb_pyfunc,
+        predict_batch_from_pdb,
+        predict_from_sequence_pyfunc,
+        create_pyfunc_model_from_checkpoint,
+        validate_pyfunc_model
+    )
+    from src.esm2_contact.mlflow_utils import (
+        get_best_pyfunc_model,
+        load_pyfunc_model_from_run,
+        get_pyfunc_model_metrics
+    )
+    PYFUNC_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import PyFunc modules: {e}")
+    PYFUNC_AVAILABLE = False
 
 # Global ESM2 model cache (load once, reuse across calls)
 _ESM2_MODEL = None
@@ -941,38 +963,204 @@ def test_compatibility():
     return True
 
 
+def get_pdb_files_from_directory(directory: str) -> List[str]:
+    """Get all PDB files from a directory."""
+    pdb_dir = Path(directory)
+    if not pdb_dir.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    pdb_files = []
+    for pattern in ['*.pdb', '*.ent', '*.cif']:
+        pdb_files.extend(pdb_dir.glob(pattern))
+
+    if not pdb_files:
+        raise ValueError(f"No PDB files found in directory: {directory}")
+
+    return [str(f) for f in sorted(pdb_files)]
+
+
+def load_pyfunc_model_smart(args) -> Any:
+    """Load PyFunc model using various methods based on arguments."""
+    if args.model_uri:
+        print(f"🔄 Loading PyFunc model from URI: {args.model_uri}")
+        return load_pyfunc_model(args.model_uri)
+
+    elif args.pyfunc_experiment:
+        print(f"🔍 Finding best model in experiment: {args.pyfunc_experiment}")
+        model = get_best_pyfunc_model(args.pyfunc_experiment)
+        if model is None:
+            raise RuntimeError(f"No models found in experiment: {args.pyfunc_experiment}")
+        return model
+
+    elif hasattr(args, 'run_id') and args.run_id:
+        print(f"🔄 Loading PyFunc model from run: {args.run_id}")
+        return load_pyfunc_model_from_run(args.run_id)
+
+    else:
+        raise ValueError("No valid PyFunc model source specified. Use --model-uri, --pyfunc-experiment, or --run-id")
+
+
+def predict_with_pyfunc(model: Any, pdb_files: List[str], args) -> List[Dict[str, Any]]:
+    """Make predictions using PyFunc model."""
+    results = []
+
+    if args.batch_processing or len(pdb_files) > 1:
+        # Batch processing
+        print(f"🚀 Using PyFunc batch processing for {len(pdb_files)} files")
+        results = predict_batch_from_pdb(
+            model, pdb_files,
+            threshold=args.threshold,
+            show_progress=True
+        )
+    else:
+        # Single file processing
+        pdb_file = pdb_files[0]
+        print(f"🔮 Using PyFunc prediction for: {pdb_file}")
+        result = predict_from_pdb_pyfunc(
+            model, pdb_file,
+            threshold=args.threshold
+        )
+        results = [result]
+
+    return results
+
+
+def create_pyfunc_model_workflow(model_path: str):
+    """Create PyFunc model from checkpoint."""
+    try:
+        print(f"🏗️ Creating MLflow PyFunc model from: {model_path}")
+
+        model_uri = create_pyfunc_model_from_checkpoint(
+            model_path=model_path,
+            experiment_name="esm2_contact_pyfunc_creation"
+        )
+
+        print(f"✅ PyFunc model created successfully!")
+        print(f"   Model URI: {model_uri}")
+        print(f"")
+        print(f"Usage examples:")
+        print(f"  # Load and use the model:")
+        print(f"  python scripts/05_predict_from_pdb.py --use-pyfunc --model-uri '{model_uri}' --pdb-file protein.pdb")
+        print(f"")
+        print(f"  # Validate the model:")
+        print(f"  python scripts/05_predict_from_pdb.py --validate-pyfunc --model-uri '{model_uri}' --pdb-file protein.pdb")
+
+    except Exception as e:
+        print(f"❌ Failed to create PyFunc model: {e}")
+        return 1
+
+    return 0
+
+
+def validate_pyfunc_workflow(model: Any, test_file: str):
+    """Validate PyFunc model functionality."""
+    try:
+        print(f"🧪 Validating PyFunc model functionality...")
+
+        validation_results = validate_pyfunc_model(
+            model_uri="loaded_model",  # We're passing the loaded model directly
+            test_pdb_file=test_file
+        )
+
+        print(f"")
+        print(f"📊 Validation Results:")
+        print(f"   Tests run: {len(validation_results['tests'])}")
+
+        for test_name, result in validation_results['tests'].items():
+            print(f"   {test_name}: {result}")
+
+        if validation_results['validation_passed']:
+            print(f"✅ Model validation passed!")
+        else:
+            print(f"⚠️  Model validation had issues")
+
+        if validation_results['errors']:
+            print(f"")
+            print(f"❌ Errors encountered:")
+            for error in validation_results['errors']:
+                print(f"   • {error}")
+
+    except Exception as e:
+        print(f"❌ Model validation failed: {e}")
+        return 1
+
+    return 0
+
+
+def benchmark_model_workflow(model: Any, test_files: List[str], iterations: int):
+    """Benchmark model performance."""
+    try:
+        print(f"🏃 Benchmarking model performance...")
+
+        from src.esm2_contact.serving.prediction_utils import benchmark_model_performance
+
+        benchmark_results = benchmark_model_performance(
+            model_uri="loaded_model",  # Using loaded model directly
+            test_files=test_files,
+            iterations=iterations
+        )
+
+        print(f"")
+        print(f"📊 Benchmark Results:")
+        print(f"   Model: PyFunc model")
+        print(f"   Test files: {benchmark_results['num_files']}")
+        print(f"   Iterations: {benchmark_results['iterations']}")
+
+        stats = benchmark_results['statistics']
+        print(f"")
+        print(f"⏱️ Timing Statistics:")
+        print(f"   Average time: {stats['avg_total_time']:.2f}s ± {stats['std_total_time']:.2f}s")
+        print(f"   Min time: {stats['min_total_time']:.2f}s")
+        print(f"   Max time: {stats['max_total_time']:.2f}s")
+        print(f"   Throughput: {stats['throughput_predictions_per_second']:.2f} predictions/s")
+
+        print(f"")
+        print(f"📈 Success Rate:")
+        avg_success = stats['avg_successful_predictions']
+        print(f"   Average successful predictions: {avg_success:.1f}/{benchmark_results['num_files']}")
+
+    except Exception as e:
+        print(f"❌ Benchmarking failed: {e}")
+        return 1
+
+    return 0
+
+
 def main():
-    """Main function."""
+    """Enhanced main function with PyFunc support."""
     parser = argparse.ArgumentParser(
-        description="Predict protein contacts from PDB file",
+        description="Predict protein contacts from PDB file with modern MLflow PyFunc support",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --pdb-file protein.pdb --model-path model.pth
-  %(prog)s --pdb-file protein.pdb --model-path model.pth --threshold 0.3
-  %(prog)s --pdb-file protein.pdb --model-path model.pth --verbose
-  %(prog)s --pdb-file protein.pdb --model-uri "mlruns/exp_id/run_id/artifacts/best_model_checkpoint"
+  # MLflow-based prediction (default)
+  %(prog)s --pdb-file protein.pdb --model-uri "mlruns/exp_id/run_id/artifacts/model"
+
+  # Batch processing
+  %(prog)s --batch-processing --pdb-file-dir ./pdbs/ --model-uri "mlruns/exp_id/run_id/artifacts/model"
+
+  # Create PyFunc model from checkpoint
+  %(prog)s --create-pyfunc-from-model model.pth
+
+  # Validate MLflow model
+  %(prog)s --validate-pyfunc --model-uri "mlruns/exp_id/run_id/artifacts/model" --pdb-file protein.pdb
+
+  # Benchmark performance
+  %(prog)s --benchmark --pdb-file-dir ./test_pdbs/ --model-uri "mlruns/exp_id/run_id/artifacts/model" --iterations 5
         """
     )
 
     parser.add_argument(
         '--pdb-file',
         type=str,
-        required=True,
-        help='Path to PDB file'
+        help='Path to PDB file (required unless using --create-pyfunc-from-model)'
     )
 
-    # Model specification (mutually exclusive)
-    model_group = parser.add_mutually_exclusive_group(required=True)
-    model_group.add_argument(
-        '--model-path',
-        type=str,
-        help='Path to trained model (.pth file)'
-    )
-    model_group.add_argument(
+    # Model specification (MLflow-only)
+    parser.add_argument(
         '--model-uri',
         type=str,
-        help='MLflow model URI (e.g., "mlruns/exp_id/run_id/artifacts/best_model_checkpoint")'
+        help='MLflow model URI (required unless using --create-pyfunc-from-model, e.g., "mlruns/exp_id/run_id/artifacts/best_model_checkpoint")'
     )
 
     parser.add_argument(
@@ -1001,6 +1189,53 @@ Examples:
         help='Test compatibility before running prediction'
     )
 
+    # Enhanced PyFunc arguments
+    # Note: PyFunc is now the default and only approach
+
+    parser.add_argument(
+        '--pyfunc-experiment',
+        type=str,
+        default='esm2_contact_training',
+        help='MLflow experiment name for PyFunc model (default: esm2_contact_training)'
+    )
+
+    parser.add_argument(
+        '--create-pyfunc-from-model',
+        type=str,
+        help='Create PyFunc model from checkpoint and exit (path to .pth file)'
+    )
+
+    parser.add_argument(
+        '--validate-pyfunc',
+        action='store_true',
+        help='Validate PyFunc model functionality'
+    )
+
+    parser.add_argument(
+        '--batch-processing',
+        action='store_true',
+        help='Enable batch processing for multiple PDB files (requires --pdb-file-dir or multiple files)'
+    )
+
+    parser.add_argument(
+        '--pdb-file-dir',
+        type=str,
+        help='Directory containing PDB files for batch processing'
+    )
+
+    parser.add_argument(
+        '--benchmark',
+        action='store_true',
+        help='Benchmark model performance'
+    )
+
+    parser.add_argument(
+        '--iterations',
+        type=int,
+        default=3,
+        help='Number of iterations for benchmarking (default: 3)'
+    )
+
     args = parser.parse_args()
 
     # Test compatibility if requested
@@ -1008,26 +1243,87 @@ Examples:
         if not test_compatibility():
             return 1
 
+    # Handle PyFunc model creation workflow
+    if args.create_pyfunc_from_model:
+        if not PYFUNC_AVAILABLE:
+            print("❌ PyFunc functionality not available. Install required dependencies.")
+            return 1
+        return create_pyfunc_model_workflow(args.create_pyfunc_from_model)
+
+    # Validate arguments and determine workflow
+    pdb_files = []
+
+    # Handle directory input for batch processing
+    if args.pdb_file_dir:
+        try:
+            pdb_files = get_pdb_files_from_directory(args.pdb_file_dir)
+            print(f"📁 Found {len(pdb_files)} PDB files in directory: {args.pdb_file_dir}")
+        except Exception as e:
+            print(f"❌ Failed to process directory: {e}")
+            return 1
+    elif args.pdb_file:
+        pdb_files = [args.pdb_file]
+
+    # Validate required arguments for prediction workflows
+    if not args.create_pyfunc_from_model:
+        if not pdb_files:
+            print("❌ No input specified. Use --pdb-file or --pdb-file-dir")
+            return 1
+        if not args.model_uri:
+            print("❌ No model specified. Use --model-uri")
+            return 1
+
+    # MLflow PyFunc is now the only approach (mandatory)
+    if not PYFUNC_AVAILABLE:
+        print("❌ PyFunc functionality not available. Install required dependencies.")
+        return 1
+
     try:
-        # Run prediction (includes its own validation)
-        results = predict_contacts(
-            pdb_path=args.pdb_file,
-            model_path=getattr(args, 'model_path', None),
-            model_uri=getattr(args, 'model_uri', None),
-            threshold=args.threshold
-        )
+        # Load PyFunc model
+        model = load_pyfunc_model_smart(args)
+
+        # Validate model if requested
+        if args.validate_pyfunc:
+            return validate_pyfunc_workflow(model, pdb_files[0])
+
+        # Benchmark model if requested
+        if args.benchmark:
+            return benchmark_model_workflow(model, pdb_files, args.iterations)
+
+        # Make predictions
+        results = predict_with_pyfunc(model, pdb_files, args)
 
         # Save results
-        save_predictions(results, args.output)
-
-        print(f"\n🎉 Prediction completed successfully!")
-        print(f"   📄 Results: {args.output}")
-        print(f"   📏 Sequence length: {results['sequence_length']}")
-        print(f"   📊 Contact density: {results['contact_density']:.4f}")
-        print(f"   🔢 Total contacts: {results['num_contacts']:,}")
-        if 'model_info' in results:
-            print(f"   🧠 Model parameters: {results['model_info']['total_parameters']:,}")
-        print(f"   ✅ Ready for downstream analysis!")
+        if len(results) == 1:
+            # Single result
+            save_predictions(results[0], args.output)
+            print(f"\n🎉 Prediction completed successfully!")
+            print(f"   📄 Results: {args.output}")
+            print(f"   📏 Sequence length: {results[0].get('sequence_length', 'N/A')}")
+            print(f"   📊 Contact density: {results[0].get('contact_density', 'N/A')}")
+            print(f"   🔢 Total contacts: {results[0].get('total_contacts', 'N/A')}")
+            if 'error' in results[0]:
+                print(f"   ⚠️  Error: {results[0]['error']}")
+            else:
+                print(f"   ✅ Ready for downstream analysis!")
+        else:
+            # Batch results - save as JSON array
+            batch_results = {
+                'batch_info': {
+                    'total_files': len(pdb_files),
+                    'successful_predictions': sum(1 for r in results if 'error' not in r),
+                    'failed_predictions': sum(1 for r in results if 'error' in r),
+                    'model_type': 'mlflow_pyfunc'
+                },
+                'results': results
+            }
+            save_predictions(batch_results, args.output)
+            print(f"\n🎉 Batch prediction completed successfully!")
+            print(f"   📄 Results: {args.output}")
+            print(f"   📁 Total files: {len(pdb_files)}")
+            print(f"   ✅ Successful: {batch_results['batch_info']['successful_predictions']}")
+            print(f"   ❌ Failed: {batch_results['batch_info']['failed_predictions']}")
+            print(f"   ✅ Ready for downstream analysis!")
 
     except Exception as e:
         print(f"\n❌ Prediction failed: {e}")

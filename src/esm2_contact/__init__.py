@@ -27,9 +27,16 @@ try:
 except ImportError:
     _MLFLOW_AVAILABLE = False
 
-# Serving components
+# Serving components (modern MLflow PyFunc integration)
 try:
-    from .serving import ContactPredictor
+    from .serving import (
+        ContactPredictor,
+        create_pyfunc_model_instance,
+        load_pyfunc_model,
+        predict_from_pdb_pyfunc,
+        predict_batch_from_pdb,
+        create_pyfunc_model_from_checkpoint
+    )
     _SERVING_AVAILABLE = True
 except ImportError:
     _SERVING_AVAILABLE = False
@@ -56,4 +63,11 @@ if _MLFLOW_AVAILABLE:
 
 # Add serving components if available
 if _SERVING_AVAILABLE:
-    __all__.append("ContactPredictor")
+    __all__.extend([
+        "ContactPredictor",
+        "create_pyfunc_model_instance",
+        "load_pyfunc_model",
+        "predict_from_pdb_pyfunc",
+        "predict_batch_from_pdb",
+        "create_pyfunc_model_from_checkpoint"
+    ])
