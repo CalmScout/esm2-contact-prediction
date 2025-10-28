@@ -377,30 +377,28 @@ class ContactPredictor:
         ])
 
 
-def create_pyfunc_model(model_path: str,
-                       signature: Optional[ModelSignature] = None,
-                       **kwargs) -> Type[mlflow.pyfunc.PythonModel]:
+def create_pyfunc_model_instance(signature: Optional[ModelSignature] = None,
+                                 **kwargs) -> mlflow.pyfunc.PythonModel:
     """
-    Create MLflow PyFunc model from trained checkpoint.
+    Create MLflow PyFunc model instance from trained checkpoint.
 
     Args:
-        model_path (str): Path to model checkpoint
         signature (Optional[ModelSignature]): Model signature
         **kwargs: Additional arguments for ContactPredictor
 
     Returns:
-        Type[mlflow.pyfunc.PythonModel]: MLflow PyFunc model class
+        mlflow.pyfunc.PythonModel: MLflow PyFunc model instance
     """
-    # Create ContactPredictor instance (for model loading)
-    # This will be recreated in load_context
-    predictor = ContactPredictor(model_path=model_path, **kwargs)
-
-    # Create PythonModel class with closure over predictor and kwargs
+    # Create PythonModel class with closure over kwargs
     class ContactPredictionModel(mlflow.pyfunc.PythonModel):
         def load_context(self, context):
             """Load model artifacts."""
-            actual_model_path = context.artifacts.get('model', model_path)
-            self.predictor = ContactPredictor(model_path=actual_model_path, **kwargs)
+            # Get model path from MLflow artifacts
+            model_path = context.artifacts.get('model')
+            if model_path is None:
+                raise RuntimeError("Model artifact not found in context. Expected 'model' key in artifacts.")
+
+            self.predictor = ContactPredictor(model_path=model_path, **kwargs)
 
         def predict(self,
                      context: Optional[mlflow.pyfunc.PythonModelContext],
@@ -408,7 +406,7 @@ def create_pyfunc_model(model_path: str,
             """Make predictions with proper type hints.
 
             Args:
-                context: MLflow model context (unused in this implementation)
+                context: MLflow model context
                 model_input: List of input features for prediction (MLflow expects list format)
 
             Returns:
@@ -428,7 +426,47 @@ def create_pyfunc_model(model_path: str,
 
             return self.predictor._predict_batch(input_data)
 
-    return ContactPredictionModel
+    # Return instance, not class
+    return ContactPredictionModel()
+
+
+def create_pyfunc_model(model_path: str,
+                       signature: Optional[ModelSignature] = None,
+                       **kwargs) -> Type[mlflow.pyfunc.PythonModel]:
+    """
+    Legacy function - use create_pyfunc_model_instance() instead.
+
+    This function is kept for backward compatibility but creates instances
+    that expect model paths through MLflow artifacts rather than direct paths.
+    """
+    # Create a wrapper class that ignores the model_path parameter
+    # and expects it to come through MLflow artifacts
+    class LegacyContactPredictionModel(mlflow.pyfunc.PythonModel):
+        def load_context(self, context):
+            """Load model artifacts."""
+            # Get model path from MLflow artifacts, ignore the model_path parameter
+            actual_model_path = context.artifacts.get('model', model_path)
+            self.predictor = ContactPredictor(model_path=actual_model_path, **kwargs)
+
+        def predict(self,
+                     context: Optional[mlflow.pyfunc.PythonModelContext],
+                     model_input: list[Union[np.ndarray, List[Dict[str, Any]], torch.Tensor]]) -> Dict[str, Any]:
+            """Make predictions with proper type hints."""
+            # Ensure predictor is loaded
+            if not hasattr(self, 'predictor'):
+                raise RuntimeError("Model not loaded. Call load_context() first.")
+
+            # MLflow passes inputs as a list, handle both single and batch inputs
+            if isinstance(model_input, list) and len(model_input) == 1:
+                # Single input case - extract from list
+                input_data = model_input[0]
+            else:
+                # Multiple inputs or already processed format
+                input_data = model_input
+
+            return self.predictor._predict_batch(input_data)
+
+    return LegacyContactPredictionModel
 
 
 def log_model_to_mlflow(model_path: str,

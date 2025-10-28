@@ -1136,7 +1136,6 @@ def main():
 
     print()
     print("✅ Dataset ready for training with existing pipeline!")
-    print("💡 Run training with: uv run python scripts/train_cnn_binary.py")
 
     # Final cleanup
     cleanup_memory()

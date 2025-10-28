@@ -891,20 +891,22 @@ class CNNTrainer:
                     if self.verbose:
                         print(f"   💾 Logged best model checkpoint")
 
-                # Create and log PyFunc model for serving
+                # Create and log custom PyFunc model for serving with rich functionality
                 try:
-                    from ..serving.contact_predictor import ContactPredictor, create_pyfunc_model
+                    from ..serving.contact_predictor import create_pyfunc_model_instance
 
-                    # Save best model to temporary file for PyFunc creation
+                    # Save best model to temporary file for PyFunc artifacts
                     if best_model_state:
                         with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
                             torch.save(best_model_state, f.name)
                             temp_model_path = f.name
 
                         try:
-                            # Create PyFunc model
-                            pyfunc_model = create_pyfunc_model(
-                                model_path=temp_model_path,
+                            if self.verbose:
+                                print(f"   🤖 Creating custom PyFunc model for serving...")
+
+                            # Create PyFunc model instance (not class)
+                            pyfunc_model = create_pyfunc_model_instance(
                                 threshold=0.5,
                                 confidence_method="probability"
                             )
@@ -916,16 +918,17 @@ class CNNTrainer:
                             if self.verbose:
                                 print(f"   ✅ Using automatic signature inference from type hints")
 
-                            # Update to use 'name' instead of deprecated 'artifact_path'
+                            # Use correct MLflow 3.x API parameters
                             mlflow.pyfunc.log_model(
-                                python_model=pyfunc_model,
-                                name="contact_predictor",
+                                python_model=pyfunc_model,  # Instance, not class
+                                name="contact_predictor",    # Correct parameter name
                                 signature=model_signature,
                                 artifacts={"model": temp_model_path}
                             )
 
                             if self.verbose:
-                                print(f"   🤖 Logged PyFunc model for serving")
+                                print(f"   🎉 Custom PyFunc model logged successfully!")
+                                print(f"   📈 Features: structured predictions, confidence scoring, batch processing")
 
                         finally:
                             # Clean up temporary file
@@ -934,21 +937,36 @@ class CNNTrainer:
 
                 except ImportError:
                     # Fallback to basic PyTorch model logging if serving module not available
+                    if self.verbose:
+                        print(f"   ⚠️  Serving module not available, falling back to PyTorch model...")
+
                     if len(train_loader) > 0:
                         sample_batch = next(iter(train_loader))
                         sample_features = sample_batch[0][:1]
                         sample_features = sample_features.to(self.device)
-                        self.mlflow_tracker.log_model(
+
+                        # Log PyTorch model with input example for better serving
+                        mlflow.pytorch.log_model(
                             self.model,
-                            "pytorch_model",
+                            artifact_path="pytorch_model",
                             input_example=sample_features
                         )
-                    if self.verbose:
-                        print(f"   ⚠️  Serving module not available, logged PyTorch model")
+
+                        if self.verbose:
+                            print(f"   ✅ PyTorch model logged successfully with input signature")
+                    else:
+                        # Fallback without input example
+                        mlflow.pytorch.log_model(
+                            self.model,
+                            artifact_path="pytorch_model"
+                        )
+
+                        if self.verbose:
+                            print(f"   ✅ PyTorch model logged successfully (no input example available)")
 
                 except Exception as e:
                     if self.verbose:
-                        print(f"   ⚠️  Failed to log PyFunc model: {e}")
+                        print(f"   ⚠️  Failed to log custom PyFunc model: {e}")
                         import traceback
                         traceback.print_exc()
 
