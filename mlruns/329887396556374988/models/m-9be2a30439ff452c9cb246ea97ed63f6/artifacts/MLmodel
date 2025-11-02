@@ -1,0 +1,29 @@
+artifact_path: file:///home/calmscout/Projects/PythonProjects/esm2-contact-prediction/mlruns/329887396556374988/models/m-9be2a30439ff452c9cb246ea97ed63f6/artifacts
+flavors:
+  python_function:
+    artifacts:
+      model:
+        path: artifacts/tmpmn6tvb36.pth
+        uri: /tmp/tmpmn6tvb36.pth
+    cloudpickle_version: 3.1.1
+    code: null
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pyfunc.model
+    python_model: python_model.pkl
+    python_version: 3.13.2
+    streamable: false
+is_signature_from_type_hint: true
+mlflow_version: 3.5.1
+model_id: m-9be2a30439ff452c9cb246ea97ed63f6
+model_size_bytes: 4637414
+model_uuid: m-9be2a30439ff452c9cb246ea97ed63f6
+prompts: null
+run_id: 4988988931424d8c9dfcb42c3a54ec2b
+signature:
+  inputs: '[{"type": "string", "required": true}]'
+  outputs: '[{"type": "any", "required": true}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2025-10-31 18:17:13.783201'

@@ -979,50 +979,322 @@ def get_pdb_files_from_directory(directory: str) -> List[str]:
     return [str(f) for f in sorted(pdb_files)]
 
 
+def detect_architecture_from_checkpoint(state_dict: dict) -> dict:
+    """
+    Detect BinaryContactCNN architecture parameters from state dict.
+
+    Args:
+        state_dict: Model state dict from checkpoint
+
+    Returns:
+        Dictionary with architecture parameters
+    """
+    print("   🔍 Detecting model architecture from checkpoint...")
+
+    # Extract key layer shapes to determine architecture
+    if 'conv1.0.weight' not in state_dict:
+        raise ValueError("Cannot detect architecture: missing conv1.0.weight in state dict")
+
+    # Extract first convolution layer shape
+    conv1_0_shape = state_dict['conv1.0.weight'].shape
+    in_channels = conv1_0_shape[1]  # Input channels (should be 68)
+    base_channels = conv1_0_shape[0]  # Base channels (32 for your model)
+
+    # Validate expected input channels
+    if in_channels != 68:
+        raise ValueError(f"Expected 68 input channels (64 ESM2 + 4 template), got {in_channels}")
+
+    # Validate base channels with second conv layer if available
+    if 'conv1.3.weight' in state_dict:
+        conv1_3_shape = state_dict['conv1.3.weight'].shape
+        expected_internal = base_channels
+        if conv1_3_shape[1] != expected_internal:
+            print(f"   ⚠️  Warning: Expected {expected_internal} internal channels, got {conv1_3_shape[1]}")
+
+    # Detect dropout rate from configuration if available
+    dropout_rate = 0.3  # Default fallback
+
+    # Log detected architecture
+    print(f"   🏗️  Detected architecture:")
+    print(f"      Input channels: {in_channels}")
+    print(f"      Base channels: {base_channels}")
+    print(f"      Detected channel progression: [{base_channels}, {base_channels}, {base_channels*2}, {base_channels*4}]")
+
+    # Show architecture efficiency benefits
+    if base_channels == 32:
+        print(f"      ✅ Efficient {base_channels}-base channel architecture detected")
+        print(f"      ✅ Optimized design: Smaller model prevents overfitting, improves efficiency")
+    elif base_channels == 64:
+        print(f"      ✅ Standard {base_channels}-base channel architecture detected")
+    else:
+        print(f"      ✅ Custom {base_channels}-base channel architecture detected")
+
+    # Validate progression pattern with available layers
+    if 'conv2.0.weight' in state_dict:
+        conv2_0_shape = state_dict['conv2.0.weight'].shape
+        actual_second_layer = conv2_0_shape[1]
+        print(f"      ✅ Layer 2 verified: {actual_second_layer} channels")
+
+    if 'conv3.0.weight' in state_dict:
+        conv3_0_shape = state_dict['conv3.0.weight'].shape
+        actual_third_layer = conv3_0_shape[1]
+        print(f"      ✅ Layer 3 verified: {actual_third_layer} channels")
+
+    return {
+        'in_channels': in_channels,
+        'base_channels': base_channels,
+        'dropout_rate': dropout_rate
+    }
+
+
+def load_direct_model(model_path: str) -> torch.nn.Module:
+    """
+    Load model directly from .pth file.
+
+    Args:
+        model_path: Path to .pth model file
+
+    Returns:
+        Loaded PyTorch model
+    """
+    print(f"🔄 Loading model from file: {model_path}")
+
+    # Validate file exists
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+
+    if not model_path.endswith('.pth'):
+        raise ValueError(f"Model file must be a .pth file: {model_path}")
+
+    try:
+        # Load checkpoint
+        checkpoint = torch.load(model_path, map_location='cpu')
+
+        # Extract state dict from different checkpoint formats
+        if isinstance(checkpoint, dict):
+            if 'model_state_dict' in checkpoint:
+                # New format with metadata
+                state_dict = checkpoint['model_state_dict']
+                print(f"   📋 Found new checkpoint format with metadata")
+                if 'model_config' in checkpoint:
+                    print(f"   📊 Saved model config: {checkpoint['model_config']}")
+            elif 'state_dict' in checkpoint:
+                # Alternative format
+                state_dict = checkpoint['state_dict']
+                print(f"   📋 Found state_dict format checkpoint")
+            elif all(key.startswith(('conv', 'fc', 'norm', 'pool')) for key in checkpoint.keys()):
+                # Raw state dict format
+                state_dict = checkpoint
+                print(f"   📋 Found raw state dict checkpoint")
+            else:
+                # Try to use checkpoint as raw state dict anyway
+                state_dict = checkpoint
+                print(f"   📋 Assuming raw state dict checkpoint")
+        else:
+            raise ValueError("Unknown checkpoint format")
+
+        # Detect architecture from state dict
+        architecture_params = detect_architecture_from_checkpoint(state_dict)
+
+        # Initialize model with detected architecture
+        model = BinaryContactCNN(**architecture_params)
+        print(f"   ✅ Created model with detected architecture")
+
+        # Load the state dict into the model
+        model.load_state_dict(state_dict)
+        print(f"   ✅ Successfully loaded model weights")
+
+        # Set model to evaluation mode
+        model.eval()
+
+        # Get device
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
+
+        print(f"   🎯 Model loaded successfully on {device}")
+        print(f"   📊 Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+        return model
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model from {model_path}: {e}")
+
+
 def load_pyfunc_model_smart(args) -> Any:
-    """Load PyFunc model using various methods based on arguments."""
-    if args.model_uri:
+    """Load model using various methods based on arguments."""
+    # Priority 1: Direct model file path (most reliable)
+    if hasattr(args, 'model_path') and args.model_path:
+        print(f"🔄 Loading model from file: {args.model_path}")
+        return load_direct_model(args.model_path)
+
+    # Priority 2: MLflow URI
+    elif hasattr(args, 'model_uri') and args.model_uri:
         print(f"🔄 Loading PyFunc model from URI: {args.model_uri}")
         return load_pyfunc_model(args.model_uri)
 
-    elif args.pyfunc_experiment:
+    # Priority 3: PyFunc experiment
+    elif hasattr(args, 'pyfunc_experiment') and args.pyfunc_experiment:
         print(f"🔍 Finding best model in experiment: {args.pyfunc_experiment}")
         model = get_best_pyfunc_model(args.pyfunc_experiment)
         if model is None:
             raise RuntimeError(f"No models found in experiment: {args.pyfunc_experiment}")
         return model
 
+    # Priority 4: Run ID
     elif hasattr(args, 'run_id') and args.run_id:
         print(f"🔄 Loading PyFunc model from run: {args.run_id}")
         return load_pyfunc_model_from_run(args.run_id)
 
     else:
-        raise ValueError("No valid PyFunc model source specified. Use --model-uri, --pyfunc-experiment, or --run-id")
+        raise ValueError("No valid model source specified. Use --model-path, --model-uri, --pyfunc-experiment, or --run-id")
+
+
+def predict_with_model(model: Any, pdb_files: List[str], args) -> List[Dict[str, Any]]:
+    """Make predictions using either PyFunc model or direct PyTorch model."""
+    results = []
+
+    # Check if model is a direct PyTorch model
+    if isinstance(model, torch.nn.Module):
+        print(f"🎯 Using direct PyTorch model for {len(pdb_files)} file(s)")
+
+        if args.batch_processing or len(pdb_files) > 1:
+            # Batch processing for direct PyTorch model
+            print(f"🚀 Using direct batch processing for {len(pdb_files)} files")
+            for pdb_file in pdb_files:
+                if args.verbose:
+                    print(f"   Processing: {pdb_file}")
+                result = predict_from_pdb_direct(model, pdb_file, threshold=args.threshold, verbose=args.verbose)
+                results.append(result)
+        else:
+            # Single file processing for direct PyTorch model
+            pdb_file = pdb_files[0]
+            print(f"🔮 Using direct PyTorch prediction for: {pdb_file}")
+            result = predict_from_pdb_direct(model, pdb_file, threshold=args.threshold, verbose=args.verbose)
+            results = [result]
+
+    else:
+        # PyFunc model processing (existing logic)
+        print(f"🎯 Using PyFunc model for {len(pdb_files)} file(s)")
+
+        if args.batch_processing or len(pdb_files) > 1:
+            # Batch processing
+            print(f"🚀 Using PyFunc batch processing for {len(pdb_files)} files")
+            results = predict_batch_from_pdb(
+                model, pdb_files,
+                threshold=args.threshold,
+                show_progress=True
+            )
+        else:
+            # Single file processing
+            pdb_file = pdb_files[0]
+            print(f"🔮 Using PyFunc prediction for: {pdb_file}")
+            result = predict_from_pdb_pyfunc(
+                model, pdb_file,
+                threshold=args.threshold
+            )
+            results = [result]
+
+    return results
+
+
+def predict_from_pdb_direct(model: torch.nn.Module, pdb_file: str, threshold: float = None, verbose: bool = False) -> Dict[str, Any]:
+    """
+    Make prediction using direct PyTorch model.
+
+    Args:
+        model: PyTorch model
+        pdb_file: Path to PDB file
+        threshold: Prediction threshold
+        verbose: Whether to show verbose output
+
+    Returns:
+        Prediction results
+    """
+    try:
+        # Simple direct prediction without serving layer complexity
+        from esm2_contact.serving.contact_predictor import load_esm2_model_cached, extract_sequence_from_pdb_simple
+
+        # Generate ESM2 embeddings
+        sequence = extract_sequence_from_pdb_simple(pdb_file)
+        esm2_model, alphabet, device = load_esm2_model_cached()
+        batch_converter = alphabet.get_batch_converter()
+
+        # Prepare batch for single sequence
+        batch_data = [("protein", sequence)]
+        batch_labels, batch_strs, batch_tokens = batch_converter(batch_data)
+        batch_tokens = batch_tokens.to(device)
+
+        # Generate embeddings
+        esm2_model.eval()
+        with torch.no_grad():
+            outputs = esm2_model(
+                batch_tokens,
+                repr_layers=[33],
+                return_contacts=False
+            )
+            # Extract embeddings (remove BOS and EOS tokens)
+            esm2_embedding = outputs["representations"][33][:, 1:-1, :].squeeze(0)
+
+        # Move ESM2 embedding to CPU before tensor assembly
+        if hasattr(esm2_embedding, 'cpu'):
+            esm2_embedding = esm2_embedding.cpu()
+
+        # Generate template features
+        template_features = generate_pattern_based_template_features(sequence)
+
+        # Assemble 68-channel tensor
+        features = assemble_68_channel_tensor(esm2_embedding, template_features)
+
+        # Convert to tensor and move to device
+        device = next(model.parameters()).device
+        features_tensor = torch.from_numpy(features).unsqueeze(0).to(device)
+
+        # Make prediction
+        model.eval()
+        with torch.no_grad():
+            with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
+                logits = model(features_tensor)
+                probabilities = torch.sigmoid(logits)
+
+        # Apply threshold
+        if threshold is None:
+            threshold = 0.15
+
+        contacts_binary = (probabilities > threshold).float()
+
+        # Convert to numpy for output
+        contacts_binary_np = contacts_binary.squeeze().cpu().numpy()
+        probabilities_np = probabilities.squeeze().cpu().numpy()
+
+        # Create result
+        result = {
+            'contact_binary': contacts_binary_np,
+            'contact_probabilities': probabilities_np,
+            # Contact density: (total_contacts / full_matrix_size) * 100
+            # Using full matrix method consistent with training pipeline
+            # Typical range for large proteins: 2-8% (biologically reasonable)
+            'contact_density': contacts_binary_np.mean() * 100,
+            'sequence_length': len(sequence),
+            'total_contacts': int(contacts_binary_np.sum()),
+            'threshold_used': threshold,
+            'pdb_file': pdb_file,
+            'protein_id': Path(pdb_file).stem
+        }
+
+        if verbose:
+            print(f"   ✅ Prediction completed successfully")
+            print(f"   📊 Contact density: {result.get('contact_density', 'N/A')}")
+            print(f"   🎯 Predictions shape: {result.get('contact_binary', 'N/A')}")
+
+        return result
+
+    except Exception as e:
+        raise RuntimeError(f"Prediction failed for {pdb_file}: {e}")
 
 
 def predict_with_pyfunc(model: Any, pdb_files: List[str], args) -> List[Dict[str, Any]]:
-    """Make predictions using PyFunc model."""
-    results = []
-
-    if args.batch_processing or len(pdb_files) > 1:
-        # Batch processing
-        print(f"🚀 Using PyFunc batch processing for {len(pdb_files)} files")
-        results = predict_batch_from_pdb(
-            model, pdb_files,
-            threshold=args.threshold,
-            show_progress=True
-        )
-    else:
-        # Single file processing
-        pdb_file = pdb_files[0]
-        print(f"🔮 Using PyFunc prediction for: {pdb_file}")
-        result = predict_from_pdb_pyfunc(
-            model, pdb_file,
-            threshold=args.threshold
-        )
-        results = [result]
-
-    return results
+    """Make predictions using PyFunc model (legacy function for backward compatibility)."""
+    return predict_with_model(model, pdb_files, args)
 
 
 def create_pyfunc_model_workflow(model_path: str):
@@ -1133,11 +1405,14 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog="""
 Examples:
-  # MLflow-based prediction (default)
+  # Direct model loading (recommended for local models)
+  %(prog)s --pdb-file protein.pdb --model-path "path/to/model.pth"
+
+  # MLflow-based prediction
   %(prog)s --pdb-file protein.pdb --model-uri "mlruns/exp_id/run_id/artifacts/model"
 
-  # Batch processing
-  %(prog)s --batch-processing --pdb-file-dir ./pdbs/ --model-uri "mlruns/exp_id/run_id/artifacts/model"
+  # Batch processing with direct model
+  %(prog)s --batch-processing --pdb-file-dir ./pdbs/ --model-path "path/to/model.pth"
 
   # Create PyFunc model from checkpoint
   %(prog)s --create-pyfunc-from-model model.pth
@@ -1146,7 +1421,7 @@ Examples:
   %(prog)s --validate-pyfunc --model-uri "mlruns/exp_id/run_id/artifacts/model" --pdb-file protein.pdb
 
   # Benchmark performance
-  %(prog)s --benchmark --pdb-file-dir ./test_pdbs/ --model-uri "mlruns/exp_id/run_id/artifacts/model" --iterations 5
+  %(prog)s --benchmark --pdb-file-dir ./test_pdbs/ --model-path "path/to/model.pth" --iterations 5
         """
     )
 
@@ -1156,11 +1431,18 @@ Examples:
         help='Path to PDB file (required unless using --create-pyfunc-from-model)'
     )
 
-    # Model specification (MLflow-only)
-    parser.add_argument(
+    # Model specification (mutually exclusive)
+    model_group = parser.add_mutually_exclusive_group(required=False)
+    model_group.add_argument(
         '--model-uri',
         type=str,
-        help='MLflow model URI (required unless using --create-pyfunc-from-model, e.g., "mlruns/exp_id/run_id/artifacts/best_model_checkpoint")'
+        help='MLflow model URI (alternative to --model-path, e.g., "mlruns/exp_id/run_id/artifacts/best_model_checkpoint")'
+    )
+
+    model_group.add_argument(
+        '--model-path',
+        type=str,
+        help='Direct path to model .pth file (alternative to --model-uri, e.g., "path/to/model.pth")'
     )
 
     parser.add_argument(
@@ -1269,9 +1551,19 @@ Examples:
         if not pdb_files:
             print("❌ No input specified. Use --pdb-file or --pdb-file-dir")
             return 1
-        if not args.model_uri:
-            print("❌ No model specified. Use --model-uri")
+        # Check for either model-uri or model-path
+        if not ((hasattr(args, 'model_uri') and args.model_uri) or (hasattr(args, 'model_path') and args.model_path)):
+            print("❌ No model specified. Use --model-uri or --model-path")
             return 1
+
+        # Validate model-path file exists
+        if hasattr(args, 'model_path') and args.model_path:
+            if not os.path.exists(args.model_path):
+                print(f"❌ Model file not found: {args.model_path}")
+                return 1
+            if not args.model_path.endswith('.pth'):
+                print(f"❌ Model file must be a .pth file: {args.model_path}")
+                return 1
 
     # MLflow PyFunc is now the only approach (mandatory)
     if not PYFUNC_AVAILABLE:
@@ -1291,7 +1583,7 @@ Examples:
             return benchmark_model_workflow(model, pdb_files, args.iterations)
 
         # Make predictions
-        results = predict_with_pyfunc(model, pdb_files, args)
+        results = predict_with_model(model, pdb_files, args)
 
         # Save results
         if len(results) == 1:

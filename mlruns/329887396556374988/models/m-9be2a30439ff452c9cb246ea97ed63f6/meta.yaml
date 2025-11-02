@@ -1,0 +1,10 @@
+artifact_location: file:///home/calmscout/Projects/PythonProjects/esm2-contact-prediction/mlruns/329887396556374988/models/m-9be2a30439ff452c9cb246ea97ed63f6/artifacts
+creation_timestamp: 1761934633736
+experiment_id: '329887396556374988'
+last_updated_timestamp: 1761934640800
+model_id: m-9be2a30439ff452c9cb246ea97ed63f6
+model_type: null
+name: contact_predictor
+source_run_id: 4988988931424d8c9dfcb42c3a54ec2b
+status: 2
+status_message: null

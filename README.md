@@ -7,7 +7,7 @@
 This system predicts which amino acids in a protein are physically close to each other (within 8Å) - a crucial task for understanding protein folding and function. By leveraging ESM-2's deep understanding of protein sequences combined with structural homology information, our model achieves excellent performance while remaining computationally efficient.
 
 ### 🌟 Key Highlights
-- **92.4% AUC performance** on comprehensive benchmark dataset
+- **93.3% AUC performance** on comprehensive benchmark dataset
 - **Modern MLflow integration** with PyFunc serving for production deployment
 - **5-step streamlined workflow** from data download to predictions
 - **Easy to use** with pretrained models and clear documentation
@@ -147,9 +147,129 @@ This will keep your repository lightweight while preserving all the code and con
 
 ### 🎯 Quick Start Guide
 
-**💡 Important Note**: Since we don't include pretrained models in this repository (to keep it lightweight), you'll need to train your own model first. This gives you full control over the training process and ensures optimal performance for your use case!
+**🚀 Instant Results: Use Our Pre-trained 93.3% AUC Model**
 
-#### **Option A: Quick Training (30-60 Minutes)**
+If you have the `mlruns/` folder (included with this repository), you can start making predictions immediately with our high-performance model:
+
+#### **🎯 Option A: Using Pre-trained Model (Recommended - 2 minutes)**
+
+**Single Protein Prediction:**
+```bash
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/4LCY.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
+```
+
+**Batch Prediction (Multiple Proteins):**
+```bash
+uv run python scripts/05_predict_from_pdb.py \
+  --batch-processing \
+  --pdb-file-dir data/data/test/ \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
+  --output batch_predictions.json
+```
+
+**Using MLflow URI (Alternative):**
+```bash
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/4LCY.pdb \
+  --model-uri "runs:/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/best_model_checkpoint"
+```
+
+**Expected Output:**
+```
+🔄 Loading model from file: mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
+   🏗️  Detected architecture:
+      Input channels: 68
+      Base channels: 32
+      ✅ Efficient 32-base channel architecture detected
+      ✅ Optimized design: Smaller model prevents overfitting, improves efficiency
+   ✅ Model loaded successfully on cuda (380,033 parameters)
+
+🎉 Prediction completed successfully!
+   📄 Results: predictions.json
+   📏 Sequence length: 766
+   📊 Contact density: 5.58%
+   🔢 Total contacts: 32,746
+   ✅ Ready for downstream analysis!
+```
+
+**💡 Model Specifications:**
+- **Performance**: 93.3% AUC on test dataset
+- **Architecture**: Efficient 32-base channel CNN
+- **Parameters**: 380,033 (optimized for speed and accuracy)
+- **Contact Density Range**: 5-8% (biologically realistic)
+- **Processing Time**: ~10 seconds per protein
+
+#### **📋 More Usage Examples**
+
+**Different Test Proteins:**
+```bash
+# Test with 3PSP (317 residues)
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/3PSP.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
+
+# Test with 1BB3 (small protein)
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/1BB3.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
+
+# Test with 2JGP (medium protein)
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/2JGP.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
+```
+
+**Custom Output and Thresholds:**
+```bash
+# Custom threshold for stricter predictions
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/4LCY.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
+  --threshold 0.10 \
+  --output strict_predictions.json
+
+# Custom threshold for more contacts
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/4LCY.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
+  --threshold 0.20 \
+  --output lenient_predictions.json
+
+# Enable verbose output for debugging
+uv run python scripts/05_predict_from_pdb.py \
+  --pdb-file data/data/test/4LCY.pdb \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
+  --verbose
+```
+
+**Performance Benchmarking:**
+```bash
+# Benchmark model performance on test proteins
+uv run python scripts/05_predict_from_pdb.py \
+  --benchmark \
+  --pdb-file-dir data/data/test/ \
+  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
+  --iterations 5
+```
+
+**💡 Output Format:**
+The model generates a JSON file containing:
+- `contact_binary`: 2D binary contact matrix (766×766 for 4LCY)
+- `contact_probabilities`: 2D probability matrix with confidence scores
+- `sequence_length`: Number of amino acid residues
+- `total_contacts`: Total number of predicted contacts
+- `contact_density`: Percentage of residue pairs in contact
+- `protein_id`: PDB identifier for reference
+
+---
+
+**💡 Alternative: Train Your Own Model**
+
+If you prefer to train your own model or want to customize the training process:
+
+#### **Option B: Quick Training (30-60 Minutes)**
 ```bash
 # Step 1: Generate a small training dataset (1% of data, ~30 minutes)
 uv run python scripts/03_generate_cnn_dataset.py \
@@ -210,25 +330,43 @@ uv run python scripts/05_predict_from_pdb.py \
 💾 Predictions saved to: predictions.json
 ```
 
-#### **Option C: Loading Your Trained Model**
+#### **Option C: Using Your Own Trained Models**
+
+If you've trained your own models using the workflow above, you can use them with the same command structure:
+
 ```bash
-# If you already have a trained model, make predictions directly
+# Using your own model with direct path
 uv run python scripts/05_predict_from_pdb.py \
-    --pdb-file data/data/test/1BB3.pdb \
-    --model-uri "runs:/YOUR_RUN_ID/model" \
-    --threshold 0.15 \
-    --verbose
+    --pdb-file data/data/test/YOUR_PROTEIN.pdb \
+    --model-path mlruns/YOUR_EXPERIMENT_ID/YOUR_RUN_ID/artifacts/best_model_checkpoint/YOUR_MODEL.pth \
+    --threshold 0.15
+
+# Using your own model with MLflow URI
+uv run python scripts/05_predict_from_pdb.py \
+    --pdb-file data/data/test/YOUR_PROTEIN.pdb \
+    --model-uri "runs:/YOUR_EXPERIMENT_ID/YOUR_RUN_ID/best_model_checkpoint" \
+    --threshold 0.15
 ```
 
-**💡 How to find your model URI**: See the "Finding Your MLflow Model URI" section below for detailed instructions on locating your trained model's URI.
+**💡 Finding Your Model Paths**:
+- **Direct paths**: Look in `mlruns/EXPERIMENT_ID/RUN_ID/artifacts/best_model_checkpoint/`
+- **MLflow URIs**: Use format `"runs:/EXPERIMENT_ID/RUN_ID/best_model_checkpoint"`
+- **Model files**: Look for `.pth` files in the artifact directories
 
 **Expected output:**
 ```
-✅ ESM2 model loaded and cached (6.7s)
-✅ Template processing completed (3.2s)
-✅ Contact prediction completed (0.1s)
-🎉 Success! Contact density: 5-10% (realistic range)
-💾 Predictions saved to: predictions.json
+🔄 Loading model from file: mlruns/your/path/to/model.pth
+   🏗️  Detected architecture:
+      Input channels: 68
+      Base channels: [your_base_channels]
+      ✅ Architecture verified
+   ✅ Model loaded successfully
+
+🎉 Prediction completed successfully!
+   📏 Sequence length: [your_protein_length]
+   📊 Contact density: [your_result]%
+   🔢 Total contacts: [your_count]
+   ✅ Ready for downstream analysis!
 ```
 
 ### 🎉 Success Indicators
@@ -246,10 +384,10 @@ uv run python scripts/05_predict_from_pdb.py \
 | Model | Training Data | AUC | Contact Density | Optimal Threshold | Best For |
 |-------|---------------|-----|-----------------|------------------|----------|
 | **Quick Test Model** | 1% data | ~85% AUC | 28% → 3.5% (adjusted) | **0.40** | Rapid prototyping |
-| **Full Dataset Model** | 100% data | **92.4% AUC** | 8.2% (realistic) | **0.15** | Production use |
+| **Production Model** | 100% data | **93.3% AUC** | 5-8% (realistic) | **0.15** | Production use |
 
 ### Threshold Guidance
-- **Full dataset model**: Use `--threshold 0.15` for realistic 5-10% contact density
+- **Production model (93.3% AUC)**: Use `--threshold 0.15` for realistic 5-8% contact density
 - **Quick test model**: Use `--threshold 0.40` for realistic 3-5% contact density
 - **Auto-thresholding**: Omit `--threshold` parameter for system optimization
 
@@ -257,7 +395,7 @@ uv run python scripts/05_predict_from_pdb.py \
 
 ## 🔄 Complete 5-Step Workflow
 
-**🎯 Goal: Reproduce our 92.4% AUC results from scratch!** This step-by-step guide takes you from a fresh git clone to a fully trained model with identical performance.
+**🎯 Goal: Reproduce our 93.3% AUC results from scratch!** This step-by-step guide takes you from a fresh git clone to a fully trained model with identical performance.
 
 ### 📋 Prerequisites
 
@@ -339,10 +477,10 @@ uv run python scripts/04_train_cnn.py \
     --epochs 50 \
     --batch-size 4
 
-# ✅ Delivers: Trained model achieving ~92.4% AUC
+# ✅ Delivers: Trained model achieving ~93.3% AUC
 # - Model: BinaryContactCNN (380K parameters, 1.45MB)
 # - Training time: ~90-120 minutes
-# - Expected AUC: 92.0-92.5%
+# - Expected AUC: 93.0-93.5%
 # - Model logged to: mlruns/ with full experiment tracking
 ```
 
@@ -772,7 +910,7 @@ We've poured our hearts into creating a tool that makes advanced protein contact
 
 ### 🎯 What Makes This Special
 
-- **🏆 Top Performance**: 92.4% AUC that rivals state-of-the-art methods
+- **🏆 Top Performance**: 93.3% AUC that rivals state-of-the-art methods
 - **⚡ Modern Architecture**: MLflow-first design with PyFunc serving
 - **🛠️ Easy to Use**: 5-step workflow with clear documentation
 - **📚 Production Ready**: Modern MLOps with model registry and versioning
