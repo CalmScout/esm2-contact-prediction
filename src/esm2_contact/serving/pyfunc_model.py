@@ -346,32 +346,40 @@ class PureRealPredictor:
             return embedding
 
         except Exception as e:
-            print(f"⚠️  ESM2 generation failed, using fallback: {e}")
-            # Return real-size random embedding as last resort
-            return np.random.randn(len(sequence), 1280).astype(np.float32)
+            # REMOVED: ESM2 random embedding fallback to prevent synthetic data pollution
+            raise RuntimeError(
+                f"ESM2 model loading failed for protein {protein_id}: {e}\n"
+                f"Random ESM2 embeddings are not allowed. "
+                f"Please ensure:\n"
+                f"  1. ESM2 model files are properly downloaded and accessible\n"
+                f"  2. Sufficient memory is available for ESM2 model loading\n"
+                f"  3. The ESM2 model is compatible with your system architecture\n"
+                f"  4. All ESM2 dependencies are properly installed\n"
+                f"  5. Consider using a smaller ESM2 model or increasing system resources"
+            )
 
     def _generate_template_features_direct(self, sequence):
-        """Generate template features directly (simple pattern-based)."""
-        seq_len = len(sequence)
-        template_features = np.zeros((4, seq_len, seq_len), dtype=np.float32)
+        """
+        REMOVED: This function previously generated synthetic template features using patterns.
+        Synthetic data generation has been removed to ensure pipeline works with real data only.
 
-        # Simple distance-based patterns
-        for i in range(seq_len):
-            for j in range(i, min(i+12, seq_len)):
-                # Channel 0: Distance-based contacts
-                dist = j - i
-                template_features[0, i, j] = template_features[0, j, i] = np.exp(-dist / 5.0)
+        Args:
+            sequence: Protein sequence
 
-                # Channel 1: Sequence separation
-                template_features[1, i, j] = template_features[1, j, i] = dist / seq_len
-
-                # Channel 2: Central bias
-                template_features[2, i, j] = template_features[2, j, i] = 1.0 if dist < 5 else 0.0
-
-                # Channel 3: Constant
-                template_features[3, i, j] = template_features[3, j, i] = 1.0
-
-        return template_features
+        Raises:
+            RuntimeError: Always raises an error - synthetic template features are not allowed
+        """
+        raise RuntimeError(
+            f"Synthetic template feature generation is not allowed. "
+            f"No real templates found for sequence length {len(sequence)}. "
+            f"This indicates a failure in the template search pipeline. "
+            f"Please ensure:\n"
+            f"  1. Homology databases are properly installed and accessible\n"
+            f"  2. Template search parameters are appropriate for your sequences\n"
+            f"  3. The sequence length is suitable for template search (>= 20 residues recommended)\n"
+            f"  4. Network connectivity is available if remote searches are needed\n"
+            f"  5. Consider adjusting template search quality thresholds in config.yaml if needed"
+        )
 
     def _assemble_68_channel_tensor_direct(self, esm2_embedding, template_channels):
         """Assemble 68-channel tensor directly - ESM2 embedding is [L, 1280], template is [4, L, L]."""
@@ -508,7 +516,6 @@ class PureRealPredictor:
             from .contact_predictor import (
                 validate_sequence_for_esm,
                 generate_esm2_embeddings_batch,
-                generate_pattern_based_template_features,
                 assemble_68_channel_tensor
             )
 
@@ -520,12 +527,24 @@ class PureRealPredictor:
             esm2_embedding = generate_esm2_embeddings_batch([(protein_id, clean_sequence)])[0]
             print(f"🧠 Generated ESM2 embeddings: {esm2_embedding.shape}")
 
-            # Generate template features using existing function
-            template_features = generate_pattern_based_template_features(clean_sequence)
-            print(f"📋 Generated template features: {template_features.shape}")
+            # Generate template features using real template search
+            try:
+                template_features = self._generate_template_features_direct(clean_sequence)
+                print(f"📋 Generated template features: {template_features.shape}")
 
-            # Assemble 68-channel tensor using existing function
-            features = assemble_68_channel_tensor(esm2_embedding.T, template_features)
+                # Assemble 68-channel tensor using existing function
+                features = assemble_68_channel_tensor(esm2_embedding.T, template_features)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Template feature generation failed for protein {protein_id}: {e}\n"
+                    f"Synthetic template features are not allowed. "
+                    f"Please ensure:\n"
+                    f"  1. Homology databases are properly installed and accessible\n"
+                    f"  2. Template search parameters in config.yaml are appropriate\n"
+                    f"  3. The sequence length is suitable for template search (>= 20 residues recommended)\n"
+                    f"  4. Network connectivity is available if remote searches are needed\n"
+                    f"  5. Consider using a protein with better template coverage"
+                )
             print(f"🔧 Assembled 68-channel features: {features.shape}")
 
             # Run CNN inference

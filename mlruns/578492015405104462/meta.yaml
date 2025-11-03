@@ -1,0 +1,6 @@
+artifact_location: file:///home/calmscout/Projects/PythonProjects/esm2-contact-prediction/mlruns/578492015405104462
+creation_time: 1762130299791
+experiment_id: '578492015405104462'
+last_update_time: 1762130299791
+lifecycle_stage: active
+name: train_on_10_percent_of_data

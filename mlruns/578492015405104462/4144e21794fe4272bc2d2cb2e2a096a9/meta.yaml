@@ -1,0 +1,14 @@
+artifact_uri: file:///home/calmscout/Projects/PythonProjects/esm2-contact-prediction/mlruns/578492015405104462/4144e21794fe4272bc2d2cb2e2a096a9/artifacts
+end_time: 1762154081606
+entry_point_name: ''
+experiment_id: '578492015405104462'
+lifecycle_stage: active
+run_id: 4144e21794fe4272bc2d2cb2e2a096a9
+run_name: run_20251103_013820
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1762130301213
+status: 3
+tags: []
+user_id: calmscout

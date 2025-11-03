@@ -86,7 +86,7 @@ class ContactMetrics:
         if self.total_samples == 0 or not self.batch_metrics:
             return {
                 'auc': 0.5, 'precision_at_l': 0.0, 'precision_at_l5': 0.0,
-                'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'mcc': 0.0
+                'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'mcc': 0.0, 'accuracy': 0.0
             }
 
         try:
@@ -101,7 +101,7 @@ class ContactMetrics:
             warnings.warn(f"Incremental metrics calculation error: {e}")
             return {
                 'auc': 0.5, 'precision_at_l': 0.0, 'precision_at_l5': 0.0,
-                'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'mcc': 0.0
+                'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'mcc': 0.0, 'accuracy': 0.0
             }
 
     def calculate_auc_safe(self, predictions: torch.Tensor, targets: torch.Tensor,
@@ -193,6 +193,55 @@ class ContactMetrics:
 
         except Exception as e:
             warnings.warn(f"Precision calculation error: {e}")
+            return 0.0
+
+    def calculate_accuracy(self, predictions: torch.Tensor, targets: torch.Tensor,
+                          mask: Optional[torch.Tensor] = None) -> float:
+        """
+        Calculate accuracy with safe error handling.
+
+        Args:
+            predictions (torch.Tensor): Predicted probabilities or logits
+            targets (torch.Tensor): Target binary labels
+            mask (Optional[torch.Tensor]): Mask for valid regions
+
+        Returns:
+            float: Accuracy score (0.0 to 1.0)
+        """
+        try:
+            # Convert logits to probabilities if needed
+            if (predictions < 0).any() or (predictions > 1).any():
+                predictions = torch.sigmoid(predictions)
+
+            # Convert to binary predictions
+            pred_binary = (predictions > self.binary_threshold).float()
+
+            # Flatten arrays
+            pred_flat = pred_binary.flatten().cpu().numpy()
+            target_flat = targets.flatten().cpu().numpy()
+
+            # Apply mask if provided
+            if mask is not None:
+                mask_flat = mask.flatten().cpu().numpy()
+                pred_flat = pred_flat[mask_flat > 0]
+                target_flat = target_flat[mask_flat > 0]
+
+            # Remove any invalid targets
+            valid_mask = (target_flat >= 0) & (target_flat <= 1)
+            pred_valid = pred_flat[valid_mask]
+            target_valid = target_flat[valid_mask]
+
+            if len(pred_valid) == 0:
+                return 0.0
+
+            # Calculate accuracy using sklearn
+            from sklearn.metrics import accuracy_score
+            accuracy = accuracy_score(target_valid, pred_valid)
+
+            return float(accuracy)
+
+        except Exception as e:
+            warnings.warn(f"Accuracy calculation error: {e}")
             return 0.0
 
     def calculate_precision_at_l(self, predictions: torch.Tensor, targets: torch.Tensor,
@@ -297,12 +346,19 @@ class ContactMetrics:
             except:
                 ap = 0.0
 
+            # Accuracy
+            try:
+                accuracy = accuracy_score(target_flat, pred_flat)
+            except:
+                accuracy = 0.0
+
             return {
                 'precision': float(precision),
                 'recall': float(recall),
                 'f1': float(f1),
                 'mcc': float(mcc),
-                'average_precision': float(ap)
+                'average_precision': float(ap),
+                'accuracy': float(accuracy)
             }
 
         except Exception as e:
@@ -312,7 +368,8 @@ class ContactMetrics:
                 'recall': 0.0,
                 'f1': 0.0,
                 'mcc': 0.0,
-                'average_precision': 0.0
+                'average_precision': 0.0,
+                'accuracy': 0.0
             }
 
     def calculate_all_metrics(self, predictions: torch.Tensor, targets: torch.Tensor,
@@ -359,6 +416,7 @@ class ContactMetrics:
         print(f"{prefix}   Recall:            {metrics.get('recall', 0.0):.4f}")
         print(f"{prefix}   F1-score:          {metrics.get('f1', 0.0):.4f}")
         print(f"{prefix}   MCC:               {metrics.get('mcc', 0.0):.4f}")
+        print(f"{prefix}   Accuracy:          {metrics.get('accuracy', 0.0):.4f}")
         print(f"{prefix}   Average Precision: {metrics.get('average_precision', 0.0):.4f}")
 
 

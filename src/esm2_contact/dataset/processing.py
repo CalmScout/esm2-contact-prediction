@@ -9,7 +9,7 @@ import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, PPBuilder
 import h5py
 import gc
 from pathlib import Path
@@ -32,7 +32,7 @@ def load_amino_acid_mapping(mapping_file: str = "amino_acid_three_to_one.json") 
 
 def extract_chains_from_pdb(pdb_path: Path, aa_three_to_one: Dict[str, str]) -> Dict[str, Dict]:
     """
-    Extract individual chains from a PDB file.
+    Extract individual chains from a PDB file using improved Biopython processing.
 
     Args:
         pdb_path: Path to PDB file
@@ -42,6 +42,7 @@ def extract_chains_from_pdb(pdb_path: Path, aa_three_to_one: Dict[str, str]) -> 
         Dictionary with chain_id as key and chain data as value
     """
     parser = PDBParser(QUIET=True)
+    ppb = PPBuilder()  # Polypeptide builder for better residue handling
     structure = parser.get_structure('protein', str(pdb_path))
 
     chains_data = {}
@@ -60,43 +61,81 @@ def extract_chains_from_pdb(pdb_path: Path, aa_three_to_one: Dict[str, str]) -> 
 
     for chain in chain_iterator:
         chain_id = chain.id
-        residues = []
-        sequence = ""
-        ca_coords = []
 
-        for residue in chain:
-            # Skip hetero residues and water
-            if residue.id[0] != ' ':
-                continue
+        try:
+            # Use PPBuilder to get proper polypeptide sequence and residues
+            pp_list = ppb.build_peptides(chain)
 
-            # Get residue name
-            res_name = residue.get_resname()
-            if res_name not in aa_three_to_one:
-                continue
+            if not pp_list:
+                # Fallback to manual processing if PPBuilder fails
+                residues = []
+                sequence = ""
+                ca_coords = []
 
-            # Get CA atom coordinates
-            if 'CA' in residue:
-                ca_coord = residue['CA'].get_coord()
-                res_seq = residue.id[1]  # residue sequence number
-                icode = residue.id[2]   # insertion code
+                for residue in chain:
+                    # Skip hetero residues and water
+                    if residue.id[0] != ' ':
+                        continue
 
-                residues.append({
-                    'res_name': res_name,
-                    'res_seq': res_seq,
-                    'icode': icode,
-                    'ca_coord': ca_coord
-                })
+                    # Get residue name with better validation
+                    res_name = residue.get_resname()
+                    if res_name not in aa_three_to_one:
+                        continue
 
-                sequence += aa_three_to_one[res_name]
-                ca_coords.append(ca_coord)
+                    # Get CA atom coordinates
+                    if 'CA' in residue:
+                        ca_coord = residue['CA'].get_coord()
+                        res_seq = residue.id[1]  # residue sequence number
+                        icode = residue.id[2]   # insertion code
 
-        if len(residues) > 0:  # Only add chains with actual residues
-            chains_data[chain_id] = {
-                'sequence': sequence,
-                'residues': residues,
-                'ca_coords': np.array(ca_coords),
-                'length': len(residues)
-            }
+                        residues.append({
+                            'res_name': res_name,
+                            'res_seq': res_seq,
+                            'icode': icode,
+                            'ca_coord': ca_coord
+                        })
+
+                        sequence += aa_three_to_one[res_name]
+                        ca_coords.append(ca_coord)
+            else:
+                # Use PPBuilder results for better accuracy
+                residues = []
+                sequence = ""
+                ca_coords = []
+
+                for pp in pp_list:
+                    # Get sequence from PPBuilder (already validated)
+                    sequence += str(pp.get_sequence())
+
+                    # Get coordinates for each residue in the polypeptide
+                    for i, residue in enumerate(pp):
+                        if 'CA' in residue:
+                            ca_coord = residue['CA'].get_coord()
+                            res_seq = residue.id[1]
+                            icode = residue.id[2]
+                            res_name = residue.get_resname()
+
+                            residues.append({
+                                'res_name': res_name,
+                                'res_seq': res_seq,
+                                'icode': icode,
+                                'ca_coord': ca_coord
+                            })
+
+                            ca_coords.append(ca_coord)
+
+            if len(residues) > 0:  # Only add chains with actual residues
+                chains_data[chain_id] = {
+                    'sequence': sequence,
+                    'residues': residues,
+                    'ca_coords': np.array(ca_coords),
+                    'length': len(residues)
+                }
+
+        except Exception as e:
+            # Log error but continue processing other chains
+            tqdm.write(f"Warning: Could not process chain {chain_id} in {pdb_path.name}: {e}")
+            continue
 
     return chains_data
 
@@ -104,7 +143,7 @@ def extract_chains_from_pdb(pdb_path: Path, aa_three_to_one: Dict[str, str]) -> 
 def compute_contact_map(ca_coords: np.ndarray, threshold: float = 8.0,
                         min_seq_separation: int = 5) -> np.ndarray:
     """
-    Compute contact map from Cα coordinates.
+    Compute contact map from Cα coordinates using vectorized distance calculation.
 
     Args:
         ca_coords: Array of Cα coordinates with shape (L, 3)
@@ -114,25 +153,26 @@ def compute_contact_map(ca_coords: np.ndarray, threshold: float = 8.0,
     Returns:
         Binary contact map with shape (L, L)
     """
+    from scipy.spatial.distance import cdist
+
     L = len(ca_coords)
+
+    # Vectorized distance calculation using scipy - MUCH faster than nested loops
+    dist_matrix = cdist(ca_coords, ca_coords)
+
+    # Initialize contact map
     contact_map = np.zeros((L, L), dtype=np.int8)
 
-    # Use progress bar for larger proteins (>100 residues)
-    show_progress = L > 100
+    # Apply threshold and sequence separation constraints
+    # Create mask for valid pairs (i, j) where j > i + min_seq_separation
+    i_indices, j_indices = np.triu_indices(L, k=min_seq_separation)
 
-    if show_progress:
-        outer_iterator = tqdm(range(L), desc="Computing contacts", leave=False)
-    else:
-        outer_iterator = range(L)
+    # Find contacts based on distance threshold
+    contacts = dist_matrix[i_indices, j_indices] < threshold
 
-    for i in outer_iterator:
-        for j in range(i + min_seq_separation, L):  # Only consider i < j with min separation
-            # Compute Euclidean distance between CA atoms
-            dist = np.linalg.norm(ca_coords[i] - ca_coords[j])
-
-            if dist < threshold:
-                contact_map[i, j] = 1
-                contact_map[j, i] = 1  # Symmetric matrix
+    # Set contacts in both directions (symmetric matrix)
+    contact_map[i_indices[contacts], j_indices[contacts]] = 1
+    contact_map[j_indices[contacts], i_indices[contacts]] = 1
 
     return contact_map
 

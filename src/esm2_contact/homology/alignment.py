@@ -8,6 +8,7 @@ and mapping residues between them for coordinate extraction.
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from Bio.Align import PairwiseAligner, substitution_matrices
+from scipy.interpolate import interp1d
 import logging
 
 logger = logging.getLogger(__name__)
@@ -453,18 +454,65 @@ class SequenceAligner:
             logger.warning(f"Template coordinate mapping too sparse ({mask_coverage:.3f} coverage), applying fallback")
 
             if len(template_coords) >= query_length:
-                # Sample uniformly from template coordinates
-                indices = np.linspace(0, len(template_coords) - 1, query_length, dtype=int)
-                mapped_coords = template_coords[indices]
-                mask = np.ones(query_length, dtype=bool)
-                logger.info(f"[DEBUG] Applied uniform sampling fallback: {len(template_coords)} -> {query_length} coordinates")
+                # Use proper spatial interpolation for coordinate mapping
+                try:
+                    # Create interpolation functions for each coordinate dimension
+                    template_indices = np.arange(len(template_coords))
+                    query_indices = np.linspace(0, len(template_coords) - 1, query_length)
+
+                    # Interpolate x, y, z coordinates separately
+                    fx = interp1d(template_indices, template_coords[:, 0], kind='linear', fill_value='extrapolate')
+                    fy = interp1d(template_indices, template_coords[:, 1], kind='linear', fill_value='extrapolate')
+                    fz = interp1d(template_indices, template_coords[:, 2], kind='linear', fill_value='extrapolate')
+
+                    mapped_coords = np.column_stack([
+                        fx(query_indices),
+                        fy(query_indices),
+                        fz(query_indices)
+                    ])
+
+                    mask = np.ones(query_length, dtype=bool)
+                    logger.info(f"[DEBUG] Applied spatial interpolation fallback: {len(template_coords)} -> {query_length} coordinates")
+
+                except Exception as e:
+                    # Fallback to uniform sampling if interpolation fails
+                    logger.warning(f"Interpolation failed ({e}), using uniform sampling")
+                    indices = np.linspace(0, len(template_coords) - 1, query_length, dtype=int)
+                    mapped_coords = template_coords[indices]
+                    mask = np.ones(query_length, dtype=bool)
+                    logger.info(f"[DEBUG] Applied uniform sampling fallback: {len(template_coords)} -> {query_length} coordinates")
             else:
-                # Template is shorter - use all coordinates and pad
-                mapped_coords = np.zeros((query_length, 3))
-                mapped_coords[:len(template_coords)] = template_coords
-                mask = np.zeros(query_length, dtype=bool)
-                mask[:len(template_coords)] = True
-                logger.info(f"[DEBUG] Applied padding fallback: {len(template_coords)} -> {query_length} coordinates")
+                # Template is shorter - use all coordinates and pad with interpolation
+                try:
+                    # Use interpolation to "stretch" shorter template to query length
+                    template_indices = np.arange(len(template_coords))
+                    query_indices = np.linspace(0, len(template_coords) - 1, query_length)
+
+                    # Interpolate x, y, z coordinates
+                    fx = interp1d(template_indices, template_coords[:, 0], kind='linear', fill_value='extrapolate')
+                    fy = interp1d(template_indices, template_coords[:, 1], kind='linear', fill_value='extrapolate')
+                    fz = interp1d(template_indices, template_coords[:, 2], kind='linear', fill_value='extrapolate')
+
+                    mapped_coords = np.column_stack([
+                        fx(query_indices),
+                        fy(query_indices),
+                        fz(query_indices)
+                    ])
+
+                    mask = np.ones(query_length, dtype=bool)  # All positions have interpolated coordinates
+                    logger.info(f"[DEBUG] Applied coordinate stretching interpolation: {len(template_coords)} -> {query_length} coordinates")
+
+                except Exception as e:
+                    # Fallback to simple padding if interpolation fails
+                    logger.warning(f"Interpolation failed ({e}), using simple padding")
+                    mapped_coords = np.zeros((query_length, 3))
+                    mapped_coords[:len(template_coords)] = template_coords
+                    # Pad the last coordinate to fill remaining positions
+                    if len(template_coords) > 0:
+                        mapped_coords[len(template_coords):] = template_coords[-1]
+                    mask = np.zeros(query_length, dtype=bool)
+                    mask[:len(template_coords)] = True
+                    logger.info(f"[DEBUG] Applied padding fallback: {len(template_coords)} -> {query_length} coordinates")
 
         return mapped_coords, mask
 

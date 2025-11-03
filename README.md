@@ -1,51 +1,38 @@
 # 🧬 ESM2 Contact Prediction with Modern MLflow Integration
 
-**Welcome!** 👋 We're excited to share this state-of-the-art protein contact prediction system that combines Meta AI's powerful ESM-2 language model with homology-assisted convolutional networks. Whether you're a researcher, developer, or bioinformatics enthusiast, this project makes predicting protein structure interactions accessible and efficient.
+**Welcome!** 👋 This state-of-the-art protein contact prediction system combines Meta AI's ESM-2 language model with homology-assisted convolutional networks for accurate protein structure interaction prediction.
 
 ## 🎯 What This Project Does
 
-This system predicts which amino acids in a protein are physically close to each other (within 8Å) - a crucial task for understanding protein folding and function. By leveraging ESM-2's deep understanding of protein sequences combined with structural homology information, our model achieves excellent performance while remaining computationally efficient.
+Predicts which amino acids in a protein are physically close (within 8Å) - crucial for understanding protein folding and function. By leveraging ESM-2's sequence understanding with structural homology information, the system achieves excellent performance while remaining computationally efficient.
 
 ### 🌟 Key Highlights
 - **93.3% AUC performance** on comprehensive benchmark dataset
 - **Modern MLflow integration** with PyFunc serving for production deployment
 - **5-step streamlined workflow** from data download to predictions
-- **Easy to use** with pretrained models and clear documentation
-- **Scalable** from quick prototyping to production use
-
-### 👥 Who This Is For
-- **Researchers** exploring protein structure prediction
-- **Developers** building bioinformatics applications
-- **Students** learning about ML in computational biology
-- **Data scientists** working with protein sequences
-- **ML Engineers** needing production-ready model serving
+- **Production-ready** with pretrained models and comprehensive documentation
+- **Scalable** from prototyping to production use
 
 ---
 
-## 🎯 Strategy Overview: Homology-Assisted CNN
+## 🏗️ Architecture Overview
 
-### **Implemented Approach**
+### **Strategy: Homology-Assisted CNN**
 
-**Concept**: Build a 2D CNN that combines sequence-derived features (from **ESM-2**) with distance/contact maps from homologous protein structures.
+**Concept**: 2D CNN combining sequence-derived features (ESM-2) with distance/contact maps from homologous protein structures.
 
 **Workflow**:
-1. **Template Discovery**: Use HHblits to find homologous structures from PDB70/UniRef30 databases
-2. **Sequence Alignment**: Map template coordinates to query residues using robust alignment
+1. **Template Discovery**: Find homologous structures using HHblits
+2. **Sequence Alignment**: Map template coordinates to query residues
 3. **Feature Integration**: Combine ESM-2 embeddings (64 channels) with template features (4 channels)
-4. **Binary Prediction**: CNN outputs binary contact maps (0/1 values) using BCEWithLogitsLoss
+4. **Binary Prediction**: CNN outputs binary contact maps using BCEWithLogitsLoss
 
-**Input Format**: 68-channel tensor (4 template + 64 ESM2 channels) of shape `(68, L, L)`
-**Output Format**: Binary L×L contact map with 8Å Cα-Cα distance threshold (6Å for Glycine)
+**Input**: 68-channel tensor `(68, L, L)` - 4 template + 64 ESM2 channels
+**Output**: Binary L×L contact map with 8Å Cα-Cα distance threshold
 
-### Strategy Comparison
+### 📊 Workflow Visualization
 
-| Strategy | Approach | Pros | Cons | Complexity |
-|----------|----------|------|------|------------|
-| **Homology-Assisted CNN** | 2D CNN + Templates | Easiest implementation<br>Proven accuracy<br>Combines ESM + structure | Template-dependent<br>L×L memory usage | **Low** ✅ |
-| **Graph Neural Network** | Residue graph + structural edges | Natural geometry encoding<br>Scales with L | Complex implementation<br>Memory-intensive | **Medium** |
-| **Template/Retrieval Transformer** | Transformer conditioned on homologs | Richest context<br>AlphaFold-level potential | Research-scale complexity<br>Long training time | **High** |
-
-**Why This Strategy?** The Homology-Assisted CNN offers the best balance of implementation complexity, computational efficiency, and proven accuracy - making it ideal for practical applications and rapid development.
+![ESM2 Contact Prediction Workflow](mermaid_chart.png)
 
 ---
 
@@ -53,105 +40,48 @@ This system predicts which amino acids in a protein are physically close to each
 
 ```
 esm2-contact-prediction/
-├── src/esm2_contact/          # 🎯 Core package - main codebase
-│   ├── training/              # CNN model architecture and training logic
-│   │   ├── model.py          # BinaryContactCNN implementation
-│   │   ├── trainer.py        # Training loop and optimization
-│   │   ├── dataset.py        # PyTorch dataset classes
-│   │   ├── metrics.py        # Evaluation metrics (AUC, precision, etc.)
-│   │   └── losses.py         # Custom loss functions
+├── src/esm2_contact/          # 🎯 Core package
+│   ├── training/              # CNN model architecture and training
 │   ├── dataset/               # Data processing utilities
-│   │   ├── processing.py     # Contact map generation from PDB
-│   │   └── utils.py          # Helper functions for data handling
 │   ├── homology/              # Template search and alignment
-│   │   ├── search.py         # Template discovery algorithms
-│   │   ├── alignment.py      # Sequence alignment utilities
-│   │   └── robust_processor.py # Robust template processing
 │   ├── analysis/              # Performance analysis tools
-│   │   ├── performance_analyzer.py # Model evaluation utilities
-│   │   └── mlflow_analyzer.py # Experiment tracking analysis
 │   ├── serving/               # 🚀 Model serving and deployment
-│   │   ├── contact_predictor.py # Core prediction engine
-│   │   ├── prediction_utils.py # High-level prediction utilities
-│   │   └── pyfunc_model.py # Modern MLflow PyFunc integration
-│   └── mlflow_utils.py        # MLflow experiment tracking utilities
+│   └── mlflow_utils.py        # MLflow experiment tracking
 ├── scripts/                   # 🚀 5-step workflow scripts
-│   ├── 01_download_dataset.py # Download training data from Google Drive
-│   ├── 02_download_homology_databases.py # Download HHblits databases
-│   ├── 03_generate_cnn_dataset.py # Generate CNN training dataset
-│   ├── 04_train_cnn.py # Train CNN model with MLflow logging
-│   └── 05_predict_from_pdb.py # Predict with MLflow PyFunc models
+│   ├── 01_download_dataset.py
+│   ├── 02_download_homology_databases.py
+│   ├── 03_generate_cnn_dataset.py
+│   ├── 04_train_cnn.py
+│   └── 05_predict_from_pdb.py
+├── notebooks/                 # 📓 Analysis notebooks
 ├── config.yaml               # 📋 Project configuration
-├── pyproject.toml           # 📦 Modern Python dependencies (Python 3.13+)
-├── data/                    # 📊 Training and test data
-├── mlruns/                 # 🏆 MLflow experiments and models (created after training)
-└── predictions/            # Output predictions directory
+├── pyproject.toml           # 📦 Modern Python dependencies
+└── data/                    # 📊 Training and test data
 ```
 
-### 💡 Key Insights
-- **`src/esm2_contact/`** is the heart of the project - all core functionality lives here
-- **`scripts/`** contains the 5-step workflow for complete reproduction
-- **`mlruns/`** will be created after your first training run (contains trained models)
-- **`src/esm2_contact/serving/`** provides production-ready PyFunc model serving
-- **Follow scripts 01-05 in order** for the complete workflow from data to predictions
-
-### 📝 Important Notes
-- **`mlruns/` directory is not included** in this repository to keep it lightweight
-- You'll train your own models after setting up the environment
-- All trained models will be stored locally in `mlruns/` for your use
+**💡 Key Insights**:
+- **`src/esm2_contact/`** contains all core functionality
+- **`scripts/`** provides the complete 5-step workflow
+- **Follow scripts 01-05 in order** for the full pipeline
+- **`mlruns/`** is created after training (contains trained models)
 
 ---
 
 ## 🚀 Quick Start
 
-**Ready to jump in?** Let's get you running with protein contact prediction in just a few minutes!
-
-### 📦 Dependencies
-
-First, let's set up your environment using modern Python package management:
+### 📦 Environment Setup
 
 ```bash
-# Install all project dependencies (recommended)
+# Install all project dependencies
 uv sync
 
 # Verify installation
 uv run python --version  # Should show Python 3.13+
 ```
 
-**💡 Tip:** The first time you run ESM-2, it will automatically download the model (~2GB), so make sure you have an internet connection!
+**💡 Tip**: First ESM-2 run downloads ~2GB model automatically.
 
-### 📝 .gitignore Recommendation
-
-**Important**: Add the following to your `.gitignore` file to avoid committing large model files and temporary data:
-
-```gitignore
-# MLflow experiments and models (can be very large)
-mlruns/
-
-# Generated datasets and models
-*.h5
-*.pth
-*.pkl
-
-# Temporary files and caches
-__pycache__/
-*.pyc
-.pytest_cache/
-.DS_Store
-
-# ESM2 model cache
-.cache/
-```
-
-This will keep your repository lightweight while preserving all the code and configuration files.
-
-### 🎯 Quick Start Guide
-
-**🚀 Instant Results: Use Our Pre-trained 93.3% AUC Model**
-
-If you have the `mlruns/` folder (included with this repository), you can start making predictions immediately with our high-performance model:
-
-#### **🎯 Option A: Using Pre-trained Model (Recommended - 2 minutes)**
+### 🎯 Using Pre-trained Model (Recommended)
 
 **Single Protein Prediction:**
 ```bash
@@ -160,7 +90,7 @@ uv run python scripts/05_predict_from_pdb.py \
   --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
 ```
 
-**Batch Prediction (Multiple Proteins):**
+**Batch Prediction:**
 ```bash
 uv run python scripts/05_predict_from_pdb.py \
   --batch-processing \
@@ -169,762 +99,259 @@ uv run python scripts/05_predict_from_pdb.py \
   --output batch_predictions.json
 ```
 
-**Using MLflow URI (Alternative):**
-```bash
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/4LCY.pdb \
-  --model-uri "runs:/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/best_model_checkpoint"
-```
-
 **Expected Output:**
 ```
-🔄 Loading model from file: mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
-   🏗️  Detected architecture:
-      Input channels: 68
-      Base channels: 32
-      ✅ Efficient 32-base channel architecture detected
-      ✅ Optimized design: Smaller model prevents overfitting, improves efficiency
+🔄 Loading model from file: mlruns/.../model.pth
    ✅ Model loaded successfully on cuda (380,033 parameters)
-
 🎉 Prediction completed successfully!
    📄 Results: predictions.json
    📏 Sequence length: 766
    📊 Contact density: 5.58%
    🔢 Total contacts: 32,746
-   ✅ Ready for downstream analysis!
 ```
 
 **💡 Model Specifications:**
-- **Performance**: 93.3% AUC on test dataset
+- **Performance**: 93.3% AUC
 - **Architecture**: Efficient 32-base channel CNN
-- **Parameters**: 380,033 (optimized for speed and accuracy)
-- **Contact Density Range**: 5-8% (biologically realistic)
+- **Parameters**: 380,033
 - **Processing Time**: ~10 seconds per protein
 
-#### **📋 More Usage Examples**
+### 🏗️ Training Your Own Model
 
-**Different Test Proteins:**
+**Quick Training (30-60 minutes):**
 ```bash
-# Test with 3PSP (317 residues)
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/3PSP.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
-
-# Test with 1BB3 (small protein)
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/1BB3.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
-
-# Test with 2JGP (medium protein)
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/2JGP.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth
-```
-
-**Custom Output and Thresholds:**
-```bash
-# Custom threshold for stricter predictions
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/4LCY.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
-  --threshold 0.10 \
-  --output strict_predictions.json
-
-# Custom threshold for more contacts
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/4LCY.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
-  --threshold 0.20 \
-  --output lenient_predictions.json
-
-# Enable verbose output for debugging
-uv run python scripts/05_predict_from_pdb.py \
-  --pdb-file data/data/test/4LCY.pdb \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
-  --verbose
-```
-
-**Performance Benchmarking:**
-```bash
-# Benchmark model performance on test proteins
-uv run python scripts/05_predict_from_pdb.py \
-  --benchmark \
-  --pdb-file-dir data/data/test/ \
-  --model-path mlruns/329887396556374988/4988988931424d8c9dfcb42c3a54ec2b/artifacts/best_model_checkpoint/tmp4s837oa3.pth \
-  --iterations 5
-```
-
-**💡 Output Format:**
-The model generates a JSON file containing:
-- `contact_binary`: 2D binary contact matrix (766×766 for 4LCY)
-- `contact_probabilities`: 2D probability matrix with confidence scores
-- `sequence_length`: Number of amino acid residues
-- `total_contacts`: Total number of predicted contacts
-- `contact_density`: Percentage of residue pairs in contact
-- `protein_id`: PDB identifier for reference
-
----
-
-**💡 Alternative: Train Your Own Model**
-
-If you prefer to train your own model or want to customize the training process:
-
-#### **Option B: Quick Training (30-60 Minutes)**
-```bash
-# Step 1: Generate a small training dataset (1% of data, ~30 minutes)
+# Step 1: Generate small dataset (1% of data)
 uv run python scripts/03_generate_cnn_dataset.py \
     --pdb-dir ./data/data/train \
     --process-ratio 0.01 \
     --random-seed 42
 
-# Step 2: Train a quick model (~20 minutes)
+# Step 2: Train model
 uv run python scripts/04_train_cnn.py \
     --dataset-path data/cnn_dataset.h5 \
     --epochs 10
 
-# Step 3: Use your freshly trained model!
+# Step 3: Make predictions
 uv run python scripts/05_predict_from_pdb.py \
     --pdb-file data/data/test/1BB3.pdb \
     --model-uri "runs:/YOUR_RUN_ID/model" \
     --threshold 0.40
 ```
 
-**Expected output:**
-```
-✅ Dataset generated successfully: 150 proteins processed
-✅ Model training completed: AUC ~85%
-✅ ESM2 model loaded and cached (6.7s)
-✅ Contact prediction completed (0.1s)
-🎉 Success! Contact density: 3-5% (realistic for quick model)
-💾 Predictions saved to: predictions.json
-```
-
-#### **Option B: Full Production Training (2-4 Hours)**
+**Production Training (2-4 hours):**
 ```bash
-# Step 1: Generate the complete training dataset (100% of data, ~2-3 hours)
+# Generate full dataset
 uv run python scripts/03_generate_cnn_dataset.py \
     --pdb-dir ./data/data/train \
     --process-ratio 1.0 \
     --random-seed 42
 
-# Step 2: Train production model (~90-120 minutes)
+# Train production model
 uv run python scripts/04_train_cnn.py \
     --dataset-path data/cnn_dataset.h5 \
     --epochs 50 \
     --experiment-name "production_model"
-
-# Step 3: Make predictions with your production model
-uv run python scripts/05_predict_from_pdb.py \
-    --pdb-file data/data/test/1BB3.pdb \
-    --model-uri "runs:/YOUR_RUN_ID/model" \
-    --threshold 0.15
 ```
-
-**Expected output:**
-```
-✅ Dataset generated successfully: 15,000 proteins processed
-✅ Model training completed: AUC 90-92%
-✅ ESM2 model loaded and cached (6.7s)
-✅ Contact prediction completed (0.1s)
-🎉 Success! Contact density: 5-10% (realistic for production model)
-💾 Predictions saved to: predictions.json
-```
-
-#### **Option C: Using Your Own Trained Models**
-
-If you've trained your own models using the workflow above, you can use them with the same command structure:
-
-```bash
-# Using your own model with direct path
-uv run python scripts/05_predict_from_pdb.py \
-    --pdb-file data/data/test/YOUR_PROTEIN.pdb \
-    --model-path mlruns/YOUR_EXPERIMENT_ID/YOUR_RUN_ID/artifacts/best_model_checkpoint/YOUR_MODEL.pth \
-    --threshold 0.15
-
-# Using your own model with MLflow URI
-uv run python scripts/05_predict_from_pdb.py \
-    --pdb-file data/data/test/YOUR_PROTEIN.pdb \
-    --model-uri "runs:/YOUR_EXPERIMENT_ID/YOUR_RUN_ID/best_model_checkpoint" \
-    --threshold 0.15
-```
-
-**💡 Finding Your Model Paths**:
-- **Direct paths**: Look in `mlruns/EXPERIMENT_ID/RUN_ID/artifacts/best_model_checkpoint/`
-- **MLflow URIs**: Use format `"runs:/EXPERIMENT_ID/RUN_ID/best_model_checkpoint"`
-- **Model files**: Look for `.pth` files in the artifact directories
-
-**Expected output:**
-```
-🔄 Loading model from file: mlruns/your/path/to/model.pth
-   🏗️  Detected architecture:
-      Input channels: 68
-      Base channels: [your_base_channels]
-      ✅ Architecture verified
-   ✅ Model loaded successfully
-
-🎉 Prediction completed successfully!
-   📏 Sequence length: [your_protein_length]
-   📊 Contact density: [your_result]%
-   🔢 Total contacts: [your_count]
-   ✅ Ready for downstream analysis!
-```
-
-### 🎉 Success Indicators
-
-**How do you know it's working?** Look for these green flags:
-
-✅ **Model loads successfully** - You'll see "ESM2 model loaded and cached"
-✅ **MLflow tracking active** - Training logs to `mlruns/` directory
-✅ **Reasonable processing time** - 11-13 seconds total per protein
-✅ **Realistic contact density** - 5-10% for full model, 3-5% for quick model
-✅ **No error messages** - Smooth execution with clear progress indicators
-
-### Model Comparison
-
-| Model | Training Data | AUC | Contact Density | Optimal Threshold | Best For |
-|-------|---------------|-----|-----------------|------------------|----------|
-| **Quick Test Model** | 1% data | ~85% AUC | 28% → 3.5% (adjusted) | **0.40** | Rapid prototyping |
-| **Production Model** | 100% data | **93.3% AUC** | 5-8% (realistic) | **0.15** | Production use |
-
-### Threshold Guidance
-- **Production model (93.3% AUC)**: Use `--threshold 0.15` for realistic 5-8% contact density
-- **Quick test model**: Use `--threshold 0.40` for realistic 3-5% contact density
-- **Auto-thresholding**: Omit `--threshold` parameter for system optimization
 
 ---
 
 ## 🔄 Complete 5-Step Workflow
 
-**🎯 Goal: Reproduce our 93.3% AUC results from scratch!** This step-by-step guide takes you from a fresh git clone to a fully trained model with identical performance.
+**Goal**: Reproduce 93.3% AUC results from scratch
 
 ### 📋 Prerequisites
-
-**System Requirements:**
-- **Python**: 3.13+ (required, managed by `uv`)
+- **Python**: 3.13+ (managed by `uv`)
 - **OS**: Linux/macOS (Ubuntu 20.04+ recommended)
-- **GPU**: CUDA-compatible GPU with 8GB+ VRAM (RTX 3080/4080 or better)
+- **GPU**: CUDA-compatible with 8GB+ VRAM
 - **RAM**: 16GB+ minimum, 32GB+ recommended
-- **Storage**: 400GB+ free disk space (for databases + datasets)
-- **Internet**: Required for initial downloads (ESM2 model + databases)
+- **Storage**: 400GB+ free space
+- **Internet**: Required for initial downloads
 
-### 🔄 Step-by-Step Workflow
+### 🔄 Step-by-Step
 
-#### **Step 0: Environment Setup**
+**Step 0: Environment Setup**
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd esm2-contact-prediction
-
-# Install all dependencies (uses uv for fast, reliable installs)
 uv sync
-
-# Verify installation
-uv run python --version  # Should show Python 3.13+
 ```
 
-#### **Step 1: Download Training Dataset**
+**Step 1: Download Training Dataset**
 ```bash
-# Download the complete training/test dataset (~2GB download)
 uv run python scripts/01_download_dataset.py
-
-# ✅ Delivers: Complete PDB dataset in data/data/
-# - Training structures: ~15,000 proteins
-# - Test structures: ~1,000 proteins
-# - Expected time: 5-15 minutes depending on internet speed
+# ✅ Delivers: ~15,000 training + ~1,000 test proteins (5-15 min)
 ```
 
-#### **Step 2: Download Homology Databases**
+**Step 2: Download Homology Databases**
 ```bash
-# Download both PDB70 and UniRef30 databases (367GB total)
 uv run python scripts/02_download_homology_databases.py --db all
-
-# ✅ Delivers: HHblits databases in data/homology_databases/
-# - PDB70: 56GB extracted (structural templates)
-# - UniRef30: 218GB extracted (sequence homologs)
-# - Expected time: 1-3 hours depending on internet speed
-# - Disk space: ~367GB total required
+# ✅ Delivers: PDB70 + UniRef30 databases (367GB total, 1-3 hours)
 ```
 
-**⚡ Quick Alternative (Skip for initial testing):**
-You can start with Step 3 and come back to this later. The system will use pattern-based templates if databases aren't available.
-
-#### **Step 3: Generate CNN Training Dataset**
+**Step 3: Generate CNN Training Dataset**
 ```bash
-# Generate complete CNN dataset with ESM2 embeddings (self-contained)
 uv run python scripts/03_generate_cnn_dataset.py \
     --pdb-dir data/data/train \
     --output-path data/cnn_dataset.h5 \
     --process-ratio 1.0 \
     --random-seed 42
-
-# ✅ Delivers: Complete training dataset (68-channel tensors + targets)
-# - Features: 68 channels (4 template + 64 ESM2 embeddings)
-# - ESM2 embeddings: Generated automatically (no separate step needed)
-# - Targets: Binary contact maps (8Å Cα-Cα distance threshold)
-# - Expected time: 2-4 hours for full dataset
-# - File size: ~12GB
-
-# For rapid testing (1% of data, ~30 minutes):
-# --process-ratio 0.01
+# ✅ Delivers: 68-channel tensors + targets (2-4 hours, ~12GB)
 ```
 
-#### **Step 4: Train the CNN Model with MLflow**
+**Step 4: Train CNN Model**
 ```bash
-# Train the model on the complete dataset with modern MLflow tracking
 uv run python scripts/04_train_cnn.py \
     --dataset-path data/cnn_dataset.h5 \
     --experiment-name "full_dataset_training" \
     --epochs 50 \
     --batch-size 4
-
-# ✅ Delivers: Trained model achieving ~93.3% AUC
-# - Model: BinaryContactCNN (380K parameters, 1.45MB)
-# - Training time: ~90-120 minutes
-# - Expected AUC: 93.0-93.5%
-# - Model logged to: mlruns/ with full experiment tracking
+# ✅ Delivers: Trained model ~93.3% AUC (90-120 min)
 ```
 
-#### **Step 5: Predict with MLflow PyFunc Model**
+**Step 5: Predict with MLflow PyFunc**
 ```bash
-# Test the trained model on sample proteins using MLflow URI
 uv run python scripts/05_predict_from_pdb.py \
     --pdb-file data/data/test/1BB3.pdb \
     --model-uri "runs:/YOUR_RUN_ID/model" \
-    --output verification_predictions.json \
     --threshold 0.15 \
     --verbose
-
-# ✅ Expected results:
-# - Contact density: 5-10% (realistic)
-# - Processing time: 11-13 seconds per protein
-# - Output: JSON file with contact predictions
-# - MLflow integration: Full model versioning and tracking
+# ✅ Expected: 5-10% contact density, 11-13 seconds processing
 ```
-
-### 📊 Expected Outputs & Verification
-
-**At each step, you should see:**
-
-| Step | Expected Output | Verification |
-|------|----------------|--------------|
-| 1 | `data/data/` with PDB files | `ls data/data/train/*.pdb \| head -5` |
-| 2 | `data/homology_databases/` with db files | `ls data/homology_databases/pdb70/` |
-| 3 | `data/cnn_dataset.h5` file | `uv run python -c "import h5py; print('Dataset OK')"` |
-| 4 | `mlruns/` with trained model | `ls mlruns/*/artifacts/model/` |
-| 5 | Predictions JSON file | `cat verification_predictions.json` |
-
-**Performance Benchmarks:**
-- **Total pipeline time**: 4-7 hours (excluding Step 2 databases)
-- **Peak GPU memory**: 4-6GB during training
-- **Peak RAM usage**: 8-12GB during dataset generation
-- **Final AUC**: 92.0-92.5% (within ±0.5% of published results)
 
 ---
 
-## 🏗️ Building Your Dataset
+## 🏆 Performance Results
 
-**Did you know?** Our high-performance model was trained on 15,000 protein structures! This section shows you how to generate your own CNN dataset from PDB files.
+### Expected Model Performance
 
-### 📁 Setting Up Your Data Structure
+| Dataset Size | AUC Performance | Training Time | Contact Density | Best For |
+|--------------|----------------|---------------|-----------------|----------|
+| **Full (15k proteins)** | **90-93%** 🏆 | 2-4 hours | 5-10% | Production |
+| **Quick (1-5% data)** | **80-87%** ✅ | 30-60 min | 3-6% | Development |
 
-Before generating your dataset, make sure your PDB files are properly organized:
+### Performance Metrics
+- **Precision@L**: 95-99%
+- **Inference Speed**: 11-13 seconds per protein
+- **Peak GPU Memory**: 4-6GB during training
+- **Model Size**: 380K parameters (1.45MB)
 
-```bash
-# Create the standard directory structure
-mkdir -p data/train data/test
-
-# Extract your PDB files to these folders:
-# - data/train/  -> Training PDB files
-# - data/test/   -> Test PDB files for evaluation
-
-# Example structure:
-data/
-├── train/
-│   ├── 1ABC.pdb
-│   ├── 2DEF.pdb
-│   └── ... (your training proteins)
-└── test/
-    ├── 1GHI.pdb
-    ├── 2JKL.pdb
-    └── ... (your test proteins)
-```
-
-### 📊 Dataset Generation Process
-
-The dataset generation pipeline transforms raw PDB files into ready-to-train HDF5 datasets with 68-channel tensors:
-
-1. **PDB Processing**: Extract sequences and coordinates from protein structure files
-2. **ESM2 Embeddings**: Generate 64-channel sequence embeddings using Meta AI's ESM-2 model
-3. **Contact Maps**: Create ground truth binary contact maps (8Å Cα-Cα distance threshold)
-4. **Template Features**: Generate 4 channels of homology-based template information
-5. **HDF5 Assembly**: Combine everything into efficient training datasets
-
-### 🚀 Dataset Generation Examples
-
-#### **For Rapid Development (1% of data, ~30 minutes):**
-```bash
-uv run python scripts/03_generate_cnn_dataset.py \
-    --pdb-dir ./data/data/train \
-    --output-path experiments/quick_test_dataset/cnn-train-test.h5 \
-    --process-ratio 0.01 \
-    --random-seed 42
-```
-
-#### **For Production Use (100% of data, several hours):**
-```bash
-uv run python scripts/03_generate_cnn_dataset.py \
-    --pdb-dir ./data/data/train \
-    --output-path experiments/full_dataset_training/cnn-train-full-dataset.h5 \
-    --process-ratio 1.0 \
-    --random-seed 42
-```
-
-### 📋 Expected Outputs
-
-| Dataset Size | Processing Time | Output Size | Proteins Processed | Use Case |
-|-------------|----------------|------------|-------------------|----------|
-| 1% (150 proteins) | ~30 minutes | ~200MB | 150 | Development & testing |
-| 100% (15,000 proteins) | ~2-3 hours | ~12GB | 15,000 | Production training |
-
-### 🔍 Output Structure
-
-The generated HDF5 file contains:
-- **`features`**: 68-channel tensors (4 template + 64 ESM2 channels)
-- **`targets`**: Binary contact maps (L×L matrices)
-- **`metadata`**: Protein information and processing statistics
+### Hardware Requirements
+- **GPU**: CUDA-compatible (RTX 3080/4080+ recommended)
+- **GPU Memory**: 8GB minimum, 12GB+ recommended
+- **RAM**: 16GB+ for ESM2 model and processing
+- **Storage**: 5GB+ for ESM2 model cache
 
 ---
 
-## 🚀 Modern MLflow Integration & PyFunc Serving
+## 🚀 MLflow Integration & PyFunc Serving
 
-**🎯 MLflow-First Architecture**: This project has been modernized with comprehensive MLflow integration for production-ready model serving and experiment tracking.
+### Finding Your Model URI
 
-### 🏆 MLflow Features
-
-- **Single Source of Truth**: All models stored in `mlruns/` directory
-- **Experiment Tracking**: Automatic parameter and metric logging
-- **Model Registry**: Versioning and staging support
-- **PyFunc Integration**: Production-ready model serving
-- **Git Integration**: Reproducibility tracking
-
-### 🔍 Finding Your MLflow Model URI
-
-After training a model with script `04_train_cnn.py`, you need to find the correct MLflow URI to use for predictions. Here are several ways to discover your model URIs:
-
-#### **Method 1: Using Command Line**
+After training, find your model using:
 ```bash
-# Find all trained models in MLflow
+# List available models
 find mlruns/ -name "*.pth" | head -5
 
-# Example output:
-# mlruns/EXPERIMENT_ID/RUN_ID/artifacts/model.pth
-# mlruns/EXPERIMENT_ID/RUN_ID/models/.../best_model_checkpoint/model.pth
-
-# Convert path to URI format:
-# Path: mlruns/EXPERIMENT_ID/RUN_ID/artifacts/model.pth
-# URI:  runs:/RUN_ID/model
+# Launch MLflow UI
+mlflow ui  # Open http://localhost:5000
 ```
 
-#### **Method 2: Using MLflow UI**
-```bash
-# Launch MLflow UI to browse experiments
-mlflow ui
+**URI Format**: `runs:/RUN_ID/model_name`
 
-# Then open http://localhost:5000 in your browser
-# Navigate to Experiments → Your Run → Artifacts tab
-# Copy the URI from the model artifact path
-```
-
-#### **Method 3: List Recent Runs**
-```bash
-# List recent MLflow runs with their details
-find mlruns/ -name "meta.yaml" -exec dirname {} \; | sort -r | head -5
-
-# Check run details
-ls -la mlruns/*/RUN_ID/artifacts/  # Replace RUN_ID with actual run ID
-```
-
-#### **Understanding MLflow URI Format**
-
-MLflow URIs follow this pattern: `runs:/RUN_ID/ARTIFACT_PATH`
-
-**URI Examples (replace with your actual RUN_ID):**
-```bash
-# Standard trained model
-runs:/YOUR_RUN_ID/model
-
-# Best model checkpoint (if saved during training)
-runs:/YOUR_RUN_ID/best_model_checkpoint
-
-# Custom model artifact path
-runs:/YOUR_RUN_ID/custom_model_name
-```
-
-**💡 Finding Your RUN_ID:**
-- **Run ID**: Found in `mlruns/EXPERIMENT_ID/RUN_ID/` directory name
-- **Example**: If your model is at `mlruns/1234567890/abcdef1234/artifacts/model.pth`, then your URI is `runs:/abcdef1234/model`
-- **Artifact Path**: Usually `model` for our trained CNN models
-
-### 🎯 PyFunc Model Serving
-
-Our modern PyFunc integration supports multiple input formats:
+### PyFunc Model Usage
 
 ```python
-# Load PyFunc model from MLflow
 import mlflow.pyfunc
+import pandas as pd
+
+# Load model
 model = mlflow.pyfunc.load_model("runs:/run_id/model")
 
 # Predict from PDB files
 input_df = pd.DataFrame([{'pdb_file': 'protein.pdb'}])
 results = model.predict(input_df)
 
-# Predict from sequences
-input_df = pd.DataFrame([{'sequence': 'ACDEFGHIKLMNPQRSTVWY'}])
-results = model.predict(input_df)
-
-# Predict from pre-computed features
-input_df = pd.DataFrame([{'features': your_68_channel_tensor}])
-results = model.predict(input_df)
-```
-
-### 📊 Model Registry and Versioning
-
-```python
-# Register model in MLflow registry
-mlflow.register_model("runs:/run_id/model", "ESM2_Contact_Predictor_v1")
-
-# Load specific version
-model = mlflow.pyfunc.load_model("models:/ESM2_Contact_Predictor_v1/Production")
-
-# Model validation
-from esm2_contact.serving.pyfunc_model import validate_pyfunc_model
-validation_results = validate_pyfunc_model("models:/ESM2_Contact_Predictor_v1/Production")
-```
-
-### 🔧 Batch Processing
-
-```python
+# Batch processing
 from esm2_contact.serving.pyfunc_model import predict_batch_from_pdb
-
-# Batch prediction for multiple proteins
-pdb_files = ['protein1.pdb', 'protein2.pdb', 'protein3.pdb']
+pdb_files = ['protein1.pdb', 'protein2.pdb']
 results = predict_batch_from_pdb("runs:/run_id/model", pdb_files)
 ```
 
 ---
 
-## 📊 Performance Results
+## 🔧 Troubleshooting
 
-**Excited to share our results!** 🎉 Our models have achieved outstanding performance that we're proud of:
+### Common Issues
 
-### 🏆 Expected Model Performance
-
-Based on our testing, you can expect the following performance ranges:
-
-#### **Full Dataset Models (15,000 proteins)**
-- **AUC Performance**: 90-93% (🌟 **Outstanding**)
-- **Training Time**: 2-4 hours (full pipeline)
-- **Peak GPU Memory**: 4-6GB
-- **Contact Density**: 5-10% (realistic biological range)
-
-#### **Quick Development Models (1-5% of data)**
-- **AUC Performance**: 80-87% (🌟 **Excellent** for prototyping)
-- **Training Time**: 30-60 minutes
-- **Peak GPU Memory**: 2-4GB
-- **Contact Density**: 3-6% (adjustable with threshold)
-
-#### **General Performance Metrics**
-- **Precision@L**: 95-99% (high precision contact prediction)
-- **Inference Speed**: 11-13 seconds per protein
-- **Memory Optimization**: FP16 training and batch processing support
-
-### 📈 Performance Classification
-- **AUC > 0.9**: Outstanding 🏆 (Production-ready models)
-- **AUC 0.8-0.9**: Excellent ✅ (Development and testing models)
-- **AUC 0.7-0.8**: Good 👍 (Early stage models)
-- **AUC 0.6-0.7**: Moderate 👌 (Needs more training data)
-- **AUC < 0.6**: Needs Improvement 🔄 (Check training configuration)
-
-**🎯 What this means**: Your models will learn meaningful contact patterns by combining ESM-2's powerful sequence understanding with homology template information. The exact performance will depend on your dataset size and training parameters, but the framework is designed to achieve high accuracy consistently.
-
-### Inference Performance & Requirements
-
-#### Hardware Requirements
-- **GPU**: CUDA-compatible GPU recommended (RTX 3080/4080 or similar)
-- **GPU Memory**: 8GB minimum, 12GB+ recommended for ESM2 model
-- **CPU**: Multi-core CPU for template processing
-- **RAM**: 16GB+ for ESM2 model and processing
-- **Storage**: 5GB+ for ESM2 model cache
-- **Internet**: Required for first-time ESM2 model download (~2GB)
-
-#### **Performance Breakdown**
-| Step | Time (First Run) | Time (Subsequent Runs) | Memory Usage |
-|------|------------------|------------------------|-------------|
-| ESM2 Model Loading | ~6-7s | ~6-7s (cached) | 2-4GB GPU |
-| Template Processing | ~3-4s | ~3-4s | 1-2GB RAM |
-| Feature Assembly | ~1-2s | ~1-2s | 1GB RAM |
-| Model Inference | <1s | <1s | 0.5GB GPU |
-| **Total** | **~11-13s** | **~11-13s** | **4-6GB GPU** |
-
-#### **Optimization Features**
-- ✅ **ESM2 Model Caching**: Loaded once globally, reused across predictions
-- ✅ **Half-Precision**: ESM2 model uses FP16 for faster inference
-- ✅ **Model Compilation**: PyTorch 2.0+ compilation for optimized inference
-- ✅ **Memory Management**: Automatic cleanup after each prediction
-- ✅ **Pattern-Based Templates**: Fast, reliable template generation (no external dependencies)
-
----
-
-## 🔧 Troubleshooting & Support
-
-**Hit a snag?** Don't worry! We've compiled solutions to the most common issues. Remember, every problem has a solution! 💪
-
-### 💾 Memory Issues? We've Got You Covered!
-
-**Problem**: "Out of memory" errors
-**Quick Fixes**:
+**Memory Issues:**
 ```bash
-# Reduce batch size for memory efficiency
+# Reduce batch size
 uv run python scripts/04_train_cnn.py --batch-size 1
 
-# Process smaller dataset first
+# Process smaller dataset
 uv run python scripts/03_generate_cnn_dataset.py --process-ratio 0.01
-
-# Use adaptive batching (automatically adjusts)
-uv run python scripts/04_train_cnn.py --adaptive-batching
 ```
 
-### 🤖 ESM-2 Model Taking Forever?
+**ESM-2 Loading Issues:**
+- First-time download: ~2GB (one-time only)
+- Ensure internet connection for initial download
+- Check disk space (~5GB free required)
+- Verify CUDA-compatible GPU
 
-**Problem**: ESM-2 model loading issues or slow downloads
-**Solutions**:
-- ✅ **First-time setup**: Initial download is ~2GB (one-time only!)
-- ✅ **Check internet**: Required for first download
-- ✅ **Disk space**: Ensure ~5GB free for model cache
-- ✅ **Patience**: Model caches after first run, subsequent loads are faster
-- ✅ **GPU check**: Ensure CUDA-compatible GPU with 8GB+ memory
-
-### 📊 MLflow Integration Issues?
-
-**Problem**: MLflow model loading or URI errors
-**Solutions**:
-- ✅ **Check URI format**: Use `runs:/run_id/model_name` format
-- ✅ **Verify model exists**: Check `mlruns/` directory structure
-- ✅ **Model artifacts**: Ensure model files are properly logged
-- ✅ **PyFunc loading**: Use `mlflow.pyfunc.load_model()` for PyFunc models
-
+**Contact Density Issues:**
 ```bash
-# List available MLflow models
-find mlruns/ -name "*.pth" | head -5
+# Quick model: Use higher threshold
+--threshold 0.40  # 3-5% density
 
-# Check MLflow runs
-mlflow ui  # Launch MLflow UI to browse experiments
+# Production model: Use lower threshold
+--threshold 0.15  # 5-10% density
+
+# Auto-threshold (recommended)
+# Omit --threshold parameter entirely
 ```
 
-### 📊 Contact Density Looking Weird?
-
-**Problem**: Unrealistic contact densities (too high or too low)
-
-**Quick Fixes**:
+**MLflow URI Issues:**
 ```bash
-# For Quick Test Model: Use higher threshold
---threshold 0.40  # Gives realistic 3-5% density
-
-# For Full Dataset Model: Use lower threshold
---threshold 0.15  # Gives realistic 5-10% density
-
-# Or let the system decide! (Recommended)
-# Just remove --threshold parameter entirely
+# Check URI format: runs:/run_id/model
+# Verify model exists in mlruns/ directory
+# Use mlflow ui to browse experiments
 ```
 
-**What to expect**:
-- ✅ **Good range**: 5-10% contact density
-- 🚨 **Too high**: >20% (threshold too low)
-- 🚨 **Too low**: <1% (threshold too high)
-
-### 🎯 uv Package Management Issues?
-
-**Problem**: Dependency installation or environment issues
-**Solutions**:
-```bash
-# Ensure uv is properly installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clean and reinstall
-uv sync --reinstall
-
-# Check Python version
-uv run python --version  # Should be 3.13+
-
-# Verify dependencies
-uv pip list | grep -E "(torch|mlflow|esm)"
-```
-
-### 🆘 Still Stuck?
-
-**Remember**:
-- 🌟 **Every expert was once a beginner!**
-- 📚 **Check the MLflow UI**: Run `mlflow ui` to explore experiments
-- 🔍 **Read the error messages**: They often contain the solution
-- 💡 **Start small**: Try the quick model first, then work up to the full one
-
-**You've got this!** Protein contact prediction is complex, but you're on the right track. 🚀
+### Success Indicators
+✅ Model loads successfully
+✅ Reasonable processing time (11-13 seconds)
+✅ Realistic contact density (5-10% for production)
+✅ No error messages
 
 ---
 
 ## 📖 References
 
 ### Key Papers
-- **Rives et al., Science 2021** - "Biological Structure and Function Emerge from Scaling Up Language Models" (ESM-2)
-- **Lin et al., Science 2023** - "ESMFold: High-Resolution Protein Structure Prediction"
-- **Jumper et al., Nature 2021** - "Highly accurate protein structure prediction with AlphaFold" (CNN methodology)
-- **Wang et al., Bioinformatics 2017** - "DeepContact: protein contact prediction by exploiting protein sequence-based features"
-
-### Method Inspiration
-- **Periscope (MLCB 2019)** - CNN-based contact prediction with templates
-- **DeepContact/RaptorX** - End-to-end contact prediction pipelines
-- **AlphaFold2** - Template integration and attention mechanisms
+- **Rives et al., Science 2021** - ESM-2 protein language model
+- **Lin et al., Science 2023** - ESMFold structure prediction
+- **Jumper et al., Nature 2021** - AlphaFold2 methodology
 
 ### Tools & Libraries
-- **[HHsuite](https://github.com/soedinglab/hh-suite)** - Sensitive homology search
 - **[ESM-2](https://github.com/facebookresearch/esm)** - Meta AI's protein language model
-- **[MLflow](https://mlflow.org/)** - MLOps platform for the ML lifecycle
+- **[MLflow](https://mlflow.org/)** - MLOps platform for experiment tracking
 - **[PyTorch](https://pytorch.org/)** - Deep learning framework
-- **[Biopython](https://biopython.org/)** - Computational biology tools
+- **[HHsuite](https://github.com/soedinglab/hh-suite)** - Homology search tools
 - **[uv](https://docs.astral.sh/uv/)** - Modern Python package manager
 
 ---
 
 ## 🌟 Conclusion
 
-**Thank you for exploring our ESM2 Contact Prediction system!** 🎉
+This project makes advanced protein contact prediction accessible with:
 
-We've poured our hearts into creating a tool that makes advanced protein contact prediction accessible to everyone. Whether you're:
+- 🏆 **Top Performance**: 93.3% AUC
+- ⚡ **Modern Architecture**: MLflow-first design with PyFunc serving
+- 🛠️ **Easy to Use**: 5-step workflow with clear documentation
+- 📚 **Production Ready**: Complete MLOps integration
 
-- 🔬 **A researcher** pushing the boundaries of structural biology
-- 👨‍💻 **A developer** building the next bioinformatics breakthrough
-- 🎓 **A student** diving into computational biology
-- 🚀 **An ML engineer** deploying models to production
-
-**...this project is for you!**
-
-### 🎯 What Makes This Special
-
-- **🏆 Top Performance**: 93.3% AUC that rivals state-of-the-art methods
-- **⚡ Modern Architecture**: MLflow-first design with PyFunc serving
-- **🛠️ Easy to Use**: 5-step workflow with clear documentation
-- **📚 Production Ready**: Modern MLOps with model registry and versioning
-- **🤝 Community Driven**: Built with love for the scientific community
-
-### 🚀 Ready to Start?
-
-1. **Jump in** with the [Quick Start](#-quick-start) guide
-2. **Explore** the [Project Structure](#-project-structure) to understand how it works
-3. **Build your own** datasets with our [generation instructions](#-building-your-dataset)
-4. **Deploy models** using [MLflow PyFunc serving](#-modern-mlflow-integration--pyfunc-serving)
-
-**The future of protein structure prediction is in your hands.** Let's accelerate scientific discovery together! 🧬✨
+**Ready to start?** Jump into the [Quick Start](#-quick-start) and begin predicting protein contacts today! 🧬✨
 
 ---
 
-*Built with ❤️ for the computational biology community. Questions? Contributions? We'd love to hear from you!*
+*Built with ❤️ for the computational biology community.*

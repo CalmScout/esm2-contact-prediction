@@ -224,50 +224,27 @@ def generate_real_esm2_embeddings(protein_id: str, sequence: str) -> np.ndarray:
     return embedding_transposed
 
 def generate_pattern_based_template_features(sequence: str) -> np.ndarray:
-    """Generate template features using the same pattern-based approach as training pipeline."""
-    print(f"   🔍 Creating pattern-based template channels (same as training pipeline)...")
+    """
+    REMOVED: This function previously generated synthetic template features using patterns.
+    Synthetic data generation has been removed to ensure pipeline works with real data only.
 
-    L = len(sequence)
-    template_channels = np.zeros((4, L, L), dtype=np.float32)
+    Args:
+        sequence: Protein sequence
 
-    # Channel 0: Sequence conservation pattern (local sequence proximity)
-    for i in range(L):
-        for j in range(L):
-            if abs(i - j) <= 2:
-                template_channels[0, i, j] = 0.8
-
-    # Channel 1: Distance-based pattern (exponential decay)
-    for i in range(L):
-        for j in range(L):
-            dist = abs(i - j)
-            if dist <= 8:
-                template_channels[1, i, j] = np.exp(-dist / 4.0)
-
-    # Channel 2: Predicted secondary structure pattern (helical propensity)
-    for i in range(L):
-        for j in range(L):
-            if i != j:
-                dist = abs(i - j)
-                # Helical periodicity pattern
-                if 3 <= dist <= 5:
-                    template_channels[2, i, j] = 0.3
-                elif dist >= 15:
-                    template_channels[2, i, j] = 0.1
-
-    # Channel 3: Coevolution pattern (long-range contacts)
-    for i in range(L):
-        for j in range(L):
-            if i != j:
-                dist = abs(i - j)
-                if dist > 12 and dist < 50:
-                    template_channels[3, i, j] = 0.2 * (1 - dist / 50)
-
-    # Set diagonal to 1.0
-    for i in range(4):
-        np.fill_diagonal(template_channels[i], 1.0)
-
-    print(f"   ✅ Template channels created: {template_channels.shape}")
-    return template_channels
+    Raises:
+        RuntimeError: Always raises an error - synthetic template features are not allowed
+    """
+    raise RuntimeError(
+        f"Synthetic template feature generation is not allowed. "
+        f"No real templates found for sequence length {len(sequence)}. "
+        f"This indicates a failure in the template search pipeline. "
+        f"Please ensure:\n"
+        f"  1. Homology databases are properly installed and accessible\n"
+        f"  2. Template search parameters are appropriate for your sequences\n"
+        f"  3. The sequence length is suitable for template search (>= 20 residues recommended)\n"
+        f"  4. Network connectivity is available if remote searches are needed\n"
+        f"  5. Consider adjusting template search quality thresholds in config.yaml if needed"
+    )
 
 def load_model_from_mlflow(model_uri: str, device: torch.device):
     """Load trained model from MLflow with enhanced compatibility."""
@@ -466,9 +443,17 @@ def extract_sequence_from_pdb_simple(pdb_path: str) -> str:
                             sequence.append(aa_map[res_name])
 
         return ''.join(sequence)
-    except Exception:
-        # Fallback: return a dummy sequence if parsing fails
-        return "ACDEFGHIKLMNPQRSTVWY" * 10  # 250 residues dummy
+    except Exception as e:
+        # REMOVED: Dummy sequence fallback to prevent synthetic data pollution
+        raise RuntimeError(
+            f"Sequence parsing failed for PDB file: {e}\n"
+            f"Synthetic dummy sequences are not allowed. "
+            f"Please ensure:\n"
+            f"  1. The PDB file is valid and contains protein structure data\n"
+            f"  2. The file contains amino acid residues with proper atom coordinates\n"
+            f"  3. The file is not corrupted or truncated\n"
+            f"  4. Consider using a different PDB file or providing sequence directly"
+        )
 
 
 def assemble_68_channel_tensor(esm2_embedding: np.ndarray, template_channels: np.ndarray) -> np.ndarray:
@@ -549,9 +534,117 @@ def process_pdb_file(pdb_path: str, device: torch.device):
     print(f"   🧬 Generating ESM2 embeddings...")
     esm2_embedding = generate_real_esm2_embeddings(protein_id, sequence)
 
-    # Generate pattern-based template features (4 channels) - same as training pipeline
-    print(f"   🔍 Generating template features...")
-    template_features = generate_pattern_based_template_features(sequence)
+    # Generate template features using real template search
+    print(f"   🔍 Searching for real template features...")
+    try:
+        # Use the same template search as the training pipeline
+        from src.esm2_contact.homology.search import TemplateSearcher, DatabaseConfig
+        import tempfile
+        import yaml
+
+        # Load configuration
+        config_path = project_root / "config.yaml"
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        template_config = config.get('template_search', {})
+        strict_quality_config = template_config.get('quality_thresholds', {})
+        fallback_quality_config = template_config.get('fallback_quality_thresholds', {})
+
+        # Create temporary cache directory
+        with tempfile.TemporaryDirectory() as cache_dir:
+            cache_path = Path(cache_dir)
+
+            # Try strict parameters first
+            print(f"   🎯 Attempting template search with strict parameters...")
+            searcher = TemplateSearcher(
+                method="dual",
+                min_identity=strict_quality_config.get('min_sequence_identity', 0.18),
+                min_coverage=strict_quality_config.get('min_coverage', 0.6),
+                max_templates=template_config.get('max_templates', 20),
+                cache_dir=cache_path
+            )
+
+            templates = searcher.search_templates(sequence, protein_id)
+
+            if not templates:
+                # Try fallback parameters
+                print(f"   ⚠️  No templates with strict parameters, trying relaxed parameters...")
+                searcher = TemplateSearcher(
+                    method="dual",
+                    min_identity=fallback_quality_config.get('min_sequence_identity', 0.10),
+                    min_coverage=fallback_quality_config.get('min_coverage', 0.4),
+                    max_templates=template_config.get('max_templates', 20),
+                    cache_dir=cache_path
+                )
+
+                templates = searcher.search_templates(sequence, protein_id)
+
+            if not templates:
+                raise RuntimeError(
+                    f"No templates found for sequence length {len(sequence)} with either strict or fallback parameters. "
+                    f"Synthetic template features are not allowed."
+                )
+
+            # Process the best template to create real template features
+            best_template = templates[0]
+            print(f"   ✅ Using template: {best_template.pdb_id}:{best_template.chain_id}")
+
+            # Import template processing functions
+            import sys
+            sys.path.append(str(project_root))
+            from scripts.generate_cnn_dataset import extract_template_coordinates, compute_template_distance_matrix
+
+            # Extract template coordinates and create real template features
+            ca_coords, alignment_mask, success = extract_template_coordinates(best_template, sequence)
+
+            if not success or ca_coords is None:
+                raise RuntimeError(
+                    f"Failed to extract coordinates from template {best_template.pdb_id}:{best_template.chain_id}. "
+                    f"Synthetic template features are not allowed."
+                )
+
+            # Create template channels from real template data
+            L = len(sequence)
+            template_features = np.zeros((4, L, L), dtype=np.float32)
+
+            # Compute real distance matrix
+            distance_matrix = compute_template_distance_matrix(ca_coords, alignment_mask, alignment_mask, L)
+
+            # Channel 0: Real template distance map
+            template_features[0] = np.nan_to_num(distance_matrix, nan=8.0)
+
+            # Channel 1: Real contact map from template distances
+            contact_threshold = 8.0
+            template_features[1] = (template_features[0] <= contact_threshold).astype(float)
+
+            # Apply sequence separation filter
+            for i in range(L):
+                for j in range(L):
+                    if abs(i - j) < 5:
+                        template_features[1, i, j] = 0.0
+
+            # Channel 2: Real coverage from alignment
+            template_features[2] = np.outer(alignment_mask, alignment_mask).astype(float)
+
+            # Channel 3: Real confidence based on template quality
+            confidence_base = best_template.sequence_identity * best_template.coverage
+            template_features[3] = np.full((L, L), confidence_base, dtype=float32)
+
+            print(f"   ✅ Real template features created: {template_features.shape}")
+
+    except Exception as e:
+        # If anything fails, raise an error - no synthetic fallbacks allowed
+        raise RuntimeError(
+            f"Template feature generation failed for protein {protein_id}: {e}\n"
+            f"Synthetic template features are not allowed. "
+            f"Please ensure:\n"
+            f"  1. Homology databases are properly installed and accessible\n"
+            f"  2. Template search parameters in config.yaml are appropriate\n"
+            f"  3. The sequence length is suitable for template search (>= 20 residues recommended)\n"
+            f"  4. Network connectivity is available if remote searches are needed\n"
+            f"  5. Consider using a protein with better template coverage"
+        )
 
     # Assemble 68-channel tensor
     print(f"   🏗️ Assembling 68-channel tensor...")
@@ -1239,8 +1332,111 @@ def predict_from_pdb_direct(model: torch.nn.Module, pdb_file: str, threshold: fl
         if hasattr(esm2_embedding, 'cpu'):
             esm2_embedding = esm2_embedding.cpu()
 
-        # Generate template features
-        template_features = generate_pattern_based_template_features(sequence)
+        # Generate template features using real template search
+        try:
+            # Use the same template search approach as above
+            from src.esm2_contact.homology.search import TemplateSearcher, DatabaseConfig
+            import tempfile
+            import yaml
+
+            # Load configuration
+            config_path = project_root / "config.yaml"
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            template_config = config.get('template_search', {})
+            strict_quality_config = template_config.get('quality_thresholds', {})
+            fallback_quality_config = template_config.get('fallback_quality_thresholds', {})
+
+            # Create temporary cache directory
+            with tempfile.TemporaryDirectory() as cache_dir:
+                cache_path = Path(cache_dir)
+
+                # Try strict parameters first
+                searcher = TemplateSearcher(
+                    method="dual",
+                    min_identity=strict_quality_config.get('min_sequence_identity', 0.18),
+                    min_coverage=strict_quality_config.get('min_coverage', 0.6),
+                    max_templates=template_config.get('max_templates', 20),
+                    cache_dir=cache_path
+                )
+
+                templates = searcher.search_templates(sequence, protein_id)
+
+                if not templates:
+                    # Try fallback parameters
+                    searcher = TemplateSearcher(
+                        method="dual",
+                        min_identity=fallback_quality_config.get('min_sequence_identity', 0.10),
+                        min_coverage=fallback_quality_config.get('min_coverage', 0.4),
+                        max_templates=template_config.get('max_templates', 20),
+                        cache_dir=cache_path
+                    )
+
+                    templates = searcher.search_templates(sequence, protein_id)
+
+                if not templates:
+                    raise RuntimeError(
+                        f"No templates found for sequence length {len(sequence)} with either strict or fallback parameters. "
+                        f"Synthetic template features are not allowed."
+                    )
+
+                # Process the best template to create real template features
+                best_template = templates[0]
+
+                # Import template processing functions
+                import sys
+                sys.path.append(str(project_root))
+                from scripts.generate_cnn_dataset import extract_template_coordinates, compute_template_distance_matrix
+
+                # Extract template coordinates and create real template features
+                ca_coords, alignment_mask, success = extract_template_coordinates(best_template, sequence)
+
+                if not success or ca_coords is None:
+                    raise RuntimeError(
+                        f"Failed to extract coordinates from template {best_template.pdb_id}:{best_template.chain_id}. "
+                        f"Synthetic template features are not allowed."
+                    )
+
+                # Create template channels from real template data
+                L = len(sequence)
+                template_features = np.zeros((4, L, L), dtype=np.float32)
+
+                # Compute real distance matrix
+                distance_matrix = compute_template_distance_matrix(ca_coords, alignment_mask, alignment_mask, L)
+
+                # Channel 0: Real template distance map
+                template_features[0] = np.nan_to_num(distance_matrix, nan=8.0)
+
+                # Channel 1: Real contact map from template distances
+                contact_threshold = 8.0
+                template_features[1] = (template_features[0] <= contact_threshold).astype(float)
+
+                # Apply sequence separation filter
+                for i in range(L):
+                    for j in range(L):
+                        if abs(i - j) < 5:
+                            template_features[1, i, j] = 0.0
+
+                # Channel 2: Real coverage from alignment
+                template_features[2] = np.outer(alignment_mask, alignment_mask).astype(float)
+
+                # Channel 3: Real confidence based on template quality
+                confidence_base = best_template.sequence_identity * best_template.coverage
+                template_features[3] = np.full((L, L), confidence_base, dtype=float32)
+
+        except Exception as e:
+            # If anything fails, raise an error - no synthetic fallbacks allowed
+            raise RuntimeError(
+                f"Template feature generation failed for protein {protein_id}: {e}\n"
+                f"Synthetic template features are not allowed. "
+                f"Please ensure:\n"
+                f"  1. Homology databases are properly installed and accessible\n"
+                f"  2. Template search parameters in config.yaml are appropriate\n"
+                f"  3. The sequence length is suitable for template search (>= 20 residues recommended)\n"
+                f"  4. Network connectivity is available if remote searches are needed\n"
+                f"  5. Consider using a protein with better template coverage"
+            )
 
         # Assemble 68-channel tensor
         features = assemble_68_channel_tensor(esm2_embedding, template_features)
